@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+client/dist/
+server/uploads/*
+!server/uploads/.gitkeep
+npm-debug.log*
+the-off-grid-backend-v3-production.zip

@@ -1,0 +1,32 @@
+{
+  "name": "the-off-grid-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:init": "node src/db.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "razorpay": "^2.9.5",
+    "nodemailer": "^6.9.14",
+    "multer": "^1.4.5-lts.1",
+    "cloudinary": "^2.5.1",
+    "google-auth-library": "^9.14.2",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.4.1",
+    "zod": "^3.23.8",
+    "sanitize-html": "^2.13.1",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4",
+    "file-type": "^19.6.0",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {}
+}

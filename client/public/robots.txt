@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /admin
+Disallow: /checkout
+Disallow: /order
+Disallow: /orders
+Disallow: /invoice
+
+Sitemap: https://theoffgrid.in/sitemap.xml
