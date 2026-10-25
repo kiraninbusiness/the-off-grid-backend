@@ -115,7 +115,7 @@ export async function awardLoyaltyPoints(client, orderId) {
 */
 router.post('/create', auth, async (req, res) => {
   const {
-    items = [],
+    items: rawItems = [],
     shipping = {},
     payment_method = 'cod',
     redeem_points = 0,
@@ -123,6 +123,11 @@ router.post('/create', auth, async (req, res) => {
     gift_card_code = ''
   } = req.body;
 
+  if (!Array.isArray(rawItems)) {
+    return res.status(400).json({ message: 'Cart items must be provided as a list.' });
+  }
+
+  const items = rawItems;
   if (!['cod', 'online'].includes(payment_method)) {
     return res.status(400).json({
       message: 'Invalid payment method'
@@ -133,6 +138,26 @@ router.post('/create', auth, async (req, res) => {
     return res.status(400).json({
       message: 'Cart is empty'
     });
+  }
+
+  // Reject malformed or repeated SKU lines before opening a database
+  // transaction. Repeated lines could otherwise each pass stock checks
+  // independently and reserve more stock than is actually available.
+  const seenLines = new Set();
+  for (const item of items) {
+    const productId = Number(item?.productId);
+    const quantity = Number(item?.quantity);
+    if (!Number.isSafeInteger(productId) || productId < 1 ||
+        !Number.isSafeInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: 'Your bag contains an invalid product or quantity. Please review it and try again.' });
+    }
+    const size = String(item?.selectedSize || '').trim().toLowerCase();
+    const color = String(item?.selectedColor || '').trim().toLowerCase();
+    const lineKey = JSON.stringify([productId, size, color]);
+    if (seenLines.has(lineKey)) {
+      return res.status(400).json({ message: 'Your bag contains the same size/colour more than once. Please update your bag and try again.' });
+    }
+    seenLines.add(lineKey);
   }
 
   const cleanShipping = {
