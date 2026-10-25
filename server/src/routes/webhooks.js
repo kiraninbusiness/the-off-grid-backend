@@ -33,7 +33,7 @@ router.post('/razorpay', async (req, res) => {
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (!secret) {
     console.warn('Razorpay webhook received but RAZORPAY_WEBHOOK_SECRET is not set — ignoring.');
-    return res.status(200).json({ ok: true, ignored: true });
+    return res.status(503).json({ message: 'Razorpay webhook verification is not configured.' });
   }
 
   const signature = req.headers['x-razorpay-signature'];
