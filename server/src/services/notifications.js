@@ -10,7 +10,7 @@ export async function createNotification(userId, { type, title, body = null, lin
       `INSERT INTO notifications (user_id, type, title, body, link) VALUES ($1,$2,$3,$4,$5)`,
       [userId, type, title, body, link]
     );
-    await sendUserPush(userId, { title, body, link, type });
+    void sendUserPush(userId, { title, body, link, type });
   } catch (e) {
     console.error('createNotification failed:', e.message);
   }
