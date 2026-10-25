@@ -39,9 +39,11 @@ router.post('/:productId', auth, async (req, res) => {
 
   const ratingNum = Number(rating);
 
-  if (!ratingNum || ratingNum < 1 || ratingNum > 5) {
+  if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
     return res.status(400).json({ message: 'Rating must be between 1 and 5' });
   }
+
+  if (!/^\\d+$/.test(String(productId)) || Number(productId) <= 0) return res.status(400).json({ message: 'Invalid product' });
 
   const cleanComment = sanitizeText(comment, 1000);
   const normalizedFit = fit_feedback == null || String(fit_feedback).trim() === '' ? null : String(fit_feedback).trim().toLowerCase().replace(/[_-]+/g, ' ');
