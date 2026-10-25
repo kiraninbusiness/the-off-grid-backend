@@ -60,6 +60,7 @@ test('cart merge and quantity safeguards remain wired into API and schema', () =
   assert.match(cartRoute, /cart_merge_requests/);
   assert.match(cartRoute, /ON CONFLICT \(user_id, request_id\) DO NOTHING/);
   assert.match(cartRoute, /mode === 'increment'/);
+  assert.ok(cartRoute.includes("WHERE ($6 <> 'increment' OR cart_items.quantity < $7)"));
   assert.match(db, /UNIQUE\(user_id, request_id\)/);
   assert.doesNotMatch(db, /DELETE FROM cart_items WHERE user_id IN/i);
 });
