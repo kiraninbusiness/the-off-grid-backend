@@ -10,7 +10,7 @@ router.get('/:productId', async (req, res) => {
   const { productId } = req.params;
 
   const { rows } = await pool.query(
-    `SELECT r.id, r.rating, r.comment, r.created_at, r.verified_purchase, u.name AS user_name
+    `SELECT r.id, r.rating, r.comment, r.created_at, r.verified_purchase, r.fit_feedback, u.name AS user_name
      FROM reviews r
      JOIN users u ON u.id = r.user_id
      WHERE r.product_id = $1 AND r.hidden = FALSE
@@ -35,7 +35,7 @@ router.get('/:productId', async (req, res) => {
 // POST a review — one per user per product. Editing re-submits (upsert).
 router.post('/:productId', auth, async (req, res) => {
   const { productId } = req.params;
-  const { rating, comment = '' } = req.body;
+  const { rating, comment = '', fit_feedback = null } = req.body;
 
   const ratingNum = Number(rating);
 
@@ -44,6 +44,11 @@ router.post('/:productId', auth, async (req, res) => {
   }
 
   const cleanComment = sanitizeText(comment, 1000);
+  const normalizedFit = fit_feedback == null || String(fit_feedback).trim() === '' ? null : String(fit_feedback).trim().toLowerCase().replace(/[_-]+/g, ' ');
+  const allowedFits = new Set(['true to size', 'runs small', 'runs large']);
+  if (normalizedFit !== null && !allowedFits.has(normalizedFit)) {
+    return res.status(400).json({ message: 'Fit feedback must be true to size, runs small, or runs large' });
+  }
 
   const purchase = await pool.query(
     `SELECT 1
@@ -59,12 +64,12 @@ router.post('/:productId', auth, async (req, res) => {
   const verifiedPurchase = purchase.rows.length > 0;
 
   const { rows } = await pool.query(
-    `INSERT INTO reviews (product_id, user_id, rating, comment, verified_purchase)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO reviews (product_id, user_id, rating, comment, verified_purchase, fit_feedback)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (product_id, user_id)
-     DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment, verified_purchase = EXCLUDED.verified_purchase, created_at = NOW()
-     RETURNING id, rating, comment, verified_purchase, created_at`,
-    [productId, req.user.id, ratingNum, cleanComment, verifiedPurchase]
+     DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment, verified_purchase = EXCLUDED.verified_purchase, fit_feedback = EXCLUDED.fit_feedback, created_at = NOW()
+     RETURNING id, rating, comment, verified_purchase, fit_feedback, created_at`,
+    [productId, req.user.id, ratingNum, cleanComment, verifiedPurchase, normalizedFit]
   );
 
   res.status(201).json({
