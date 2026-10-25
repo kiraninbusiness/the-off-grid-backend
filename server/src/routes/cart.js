@@ -47,9 +47,13 @@ router.put('/item', async (req, res) => {
          ELSE EXCLUDED.quantity
        END,
        updated_at = NOW(), abandoned_email_sent = FALSE
+     WHERE ($6 <> 'increment' OR cart_items.quantity < $7)
      RETURNING *`,
     [req.user.id, productId, quantity, selected_size, selected_color, mode, MAX_CART_QUANTITY]
   );
+  if (!rows.length) {
+    return res.status(409).json({ message: `You can add up to ${MAX_CART_QUANTITY} of the same size and colour per order.` });
+  }
   res.status(200).json(rows[0]);
 });
 
