@@ -518,36 +518,32 @@ export async function initDb(){
     ON cart_items (user_id, product_id, selected_size, selected_color)
   `);
 
-  /* ===== EMERGENCY CART QUANTITY SANITIZATION =====
-     A separate, worse bug (now fixed in App.jsx) had the frontend
-     calling the ADDITIVE cart-merge endpoint on every single page
-     load with a persisted session — not just on an actual login. That
-     roughly doubled every cart line's quantity every time the site
-     was reopened, capable of reaching 1000+ "items" with zero user
-     action. No real customer has genuinely added that many of
-     anything, so any existing quantity in the multi-hundreds is
-     certainly bug fallout, not real intent — reset to 1 rather than
-     preserved, since there's no way to recover what was actually
-     intended from a corrupted number. */
-  await pool.query(`UPDATE cart_items SET quantity = 1 WHERE quantity > 20`);
-
-  /* ===== CART SANITY CAP =====
-     Collapsing duplicate rows above only fixes the row-count side of
-     the bug — if a single row's quantity was already inflated (e.g.
-     from repeated merge calls compounding before the merge-guard fix
-     below), summing duplicates together still lands on the same
-     inflated total. A real customer essentially never has 50+ of the
-     same item in their cart, so treat totals that large as leftover
-     bug damage: cap any absurd single-line quantity, and if a user's
-     whole cart is still absurd after that, just clear it rather than
-     preserve a nonsense number. Safe to run every startup — a normal
-     cart is always well under these thresholds and is never touched. */
-  await pool.query(`UPDATE cart_items SET quantity = 10 WHERE quantity > 10`);
-  await pool.query(`
-    DELETE FROM cart_items WHERE user_id IN (
-      SELECT user_id FROM cart_items GROUP BY user_id HAVING SUM(quantity) > 50
-    )
-  `);
+  /* ===== SAFE CART NORMALIZATION MIGRATION =====
+     Apply a one-time quantity cap to legacy rows without deleting customer
+     carts. This is guarded by a migration marker and does not run on every
+     server startup.
+  */
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_migrations (
+    migration_key TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  const migrationClient = await pool.connect();
+  try {
+    await migrationClient.query('BEGIN');
+    const migration = await migrationClient.query(
+      `INSERT INTO app_migrations (migration_key) VALUES ('cart_quantity_cap_v1')
+       ON CONFLICT (migration_key) DO NOTHING RETURNING migration_key`
+    );
+    if (migration.rows.length) {
+      await migrationClient.query(`UPDATE cart_items SET quantity = 10 WHERE quantity > 10`);
+    }
+    await migrationClient.query('COMMIT');
+  } catch (e) {
+    await migrationClient.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    migrationClient.release();
+  }
 
   /* ===== ROUND 10 ADDITIONS ===== */
 
@@ -568,6 +564,45 @@ export async function initDb(){
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, created_at DESC)`);
+
+  // Durable guest-cart merge idempotency keys.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cart_merge_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      request_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, request_id)
+    )
+  `);
+
+  // Push tokens are owned by a single account and updated when Expo rotates them.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_push_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      platform TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS user_push_tokens_user_idx ON user_push_tokens(user_id)`);
+
+  // Verified webhook payloads survive process errors and can be safely retried.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS razorpay_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'processing',
+      attempts INTEGER NOT NULL DEFAULT 1,
+      last_error TEXT,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS razorpay_webhook_events_status_idx ON razorpay_webhook_events(status, received_at)`);
 
   // Order modification before shipping — track that an order was edited
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`);
