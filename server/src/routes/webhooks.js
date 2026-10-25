@@ -24,9 +24,9 @@ const router = Router();
   verification.
 
   Set the webhook secret in Razorpay's dashboard (Settings > Webhooks)
-  and put the same value in RAZORPAY_WEBHOOK_SECRET. Without it, this
-  endpoint safely no-ops (nothing breaks — you just don't get
-  server-side reconciliation until it's configured).
+  and put the same value in RAZORPAY_WEBHOOK_SECRET. If it is missing,
+  this endpoint returns 503 rather than falsely acknowledging a payment
+  event; configure the secret before enabling Razorpay webhooks.
   ------------------------------------------------------------------
 */
 router.post('/razorpay', async (req, res) => {
