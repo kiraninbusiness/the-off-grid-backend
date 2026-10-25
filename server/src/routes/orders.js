@@ -148,8 +148,8 @@ router.post('/create', auth, async (req, res) => {
     const productId = Number(item?.productId);
     const quantity = Number(item?.quantity);
     if (!Number.isSafeInteger(productId) || productId < 1 ||
-        !Number.isSafeInteger(quantity) || quantity < 1) {
-      return res.status(400).json({ message: 'Your bag contains an invalid product or quantity. Please review it and try again.' });
+        !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10) {
+      return res.status(400).json({ message: 'Your bag contains an invalid product or quantity (maximum 10 per size/colour). Please review it and try again.' });
     }
     const size = String(item?.selectedSize || '').trim().toLowerCase();
     const color = String(item?.selectedColor || '').trim().toLowerCase();
