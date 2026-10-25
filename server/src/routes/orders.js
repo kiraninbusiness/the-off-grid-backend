@@ -190,25 +190,42 @@ router.post('/create', auth, async (req, res) => {
     );
 
     /*
-      SKU-LEVEL VARIANT LOOKUP
-      If a product has variant rows (size+color -> stock), lock and
-      validate against the specific variant instead of the aggregate
-      products.stock column. Products with no variants fall back to
-      the old product-level stock check for backward compatibility.
+      SKU-LEVEL VARIANT VALIDATION
+      Products with configured variants must be purchased using an exact,
+      in-stock size/color SKU. Never silently fall back to aggregate product
+      stock when a selected SKU is missing or when a required size is absent.
+      Products with no variant rows retain product-level stock compatibility.
     */
     const variantByKey = {};
+    const variantProducts = new Set();
     for (const item of items) {
       const productId = Number(item.productId);
-      if (!item.selectedSize) continue;
+      const product = byId[productId];
+      if (!product) continue;
+
       const variantResult = await client.query(
         `SELECT * FROM product_variants
-         WHERE product_id = $1 AND size = $2 AND color = $3
+         WHERE product_id = $1
          FOR UPDATE`,
-        [productId, item.selectedSize, item.selectedColor || '']
+        [productId]
       );
-      if (variantResult.rows.length) {
-        variantByKey[`${productId}|${item.selectedSize}|${item.selectedColor || ''}`] = variantResult.rows[0];
+      if (!variantResult.rows.length) continue;
+
+      variantProducts.add(productId);
+      const selectedSize = String(item.selectedSize || '').trim();
+      const selectedColor = String(item.selectedColor || '').trim();
+      if (!selectedSize) {
+        throw new Error(`Please select a size for ${product.name}`);
       }
+
+      const variant = variantResult.rows.find((row) =>
+        String(row.size || '').trim().toLowerCase() === selectedSize.toLowerCase() &&
+        String(row.color || '').trim().toLowerCase() === selectedColor.toLowerCase()
+      );
+      if (!variant) {
+        throw new Error(`The selected size/color is no longer available for ${product.name}. Please update your bag.`);
+      }
+      variantByKey[`${productId}|${selectedSize}|${selectedColor}`] = variant;
     }
 
     /*
@@ -267,8 +284,12 @@ router.post('/create', auth, async (req, res) => {
         );
       }
 
-      const variantKey = `${productId}|${item.selectedSize || ''}|${item.selectedColor || ''}`;
+      const variantKey = `${productId}|${String(item.selectedSize || '').trim()}|${String(item.selectedColor || '').trim()}`;
       const variant = variantByKey[variantKey];
+
+      if (variantProducts.has(productId) && !variant) {
+        throw new Error(`The selected size/color is no longer available for ${p.name}. Please update your bag.`);
+      }
 
       if (variant) {
         if (quantity > Number(variant.stock)) {
