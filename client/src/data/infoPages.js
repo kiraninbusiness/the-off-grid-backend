@@ -50,8 +50,21 @@ export const INFO_PAGES = {
       { heading: "How we use it", body: "To process and deliver your orders, send order updates, provide customer support, and (only with your consent) send marketing emails you can unsubscribe from at any time." },
       { heading: "Payment information", body: "We never store your card, UPI, or banking details. All payments are processed securely by Razorpay, which is PCI-DSS compliant." },
       { heading: "Sharing", body: "We share your shipping details only with our delivery partners, and never sell your personal information to third parties." },
-      { heading: "Your rights", body: "You can request a copy of your data, ask us to correct it, or request account deletion any time by writing to [support email]." },
-      { heading: "Contact", body: "Questions about this policy can be sent to [support email] or [company address]." }
+      { heading: "Your rights", body: "You can request a copy of your data, ask us to correct it, or request account deletion any time, in the app (Account > Delete my account) or by writing to support@theoffgrid.in. See our Delete Your Account page for what is removed and what we keep." },
+      { heading: "Account deletion & data we keep", body: "Deleting your account removes your profile, saved addresses, bag and wishlist, reviews, return requests, notifications, device notification tokens and loyalty or referral balance. Orders you have already placed are kept for legal, tax and accounting purposes and may still show the name, phone, email and delivery address you entered at checkout; they are no longer linked to an account. Newsletter and restock-alert subscriptions are tied to your email address rather than your account, so they are not removed automatically — use the unsubscribe link in any email or write to us and we will remove them." },
+      { heading: "Contact", body: "Questions about this policy can be sent to support@theoffgrid.in or [company address]." }
+    ]
+  },
+  "delete-account": {
+    eyebrow: "THE OFF GRID / ACCOUNT",
+    title: "DELETE YOUR ACCOUNT.",
+    sections: [
+      { heading: "In the app", body: "Open the app, go to Account, scroll to the bottom and tap Delete my account. Confirm with your password. Your account is deleted straight away and you are signed out." },
+      { heading: "By email", body: "Cannot use the app? Write to support@theoffgrid.in from the email address on your account with the subject 'Delete my account'. We will confirm the request is from you before deleting anything." },
+      { heading: "What is deleted", body: "Your profile (name, email, password), saved addresses, bag and wishlist, product reviews, return requests, notifications, device notification tokens, and your Off Grid Club loyalty and referral balance." },
+      { heading: "What we keep", body: "Orders you have already placed are kept for legal, tax and accounting purposes. They may still show the name, phone, email and delivery address you gave at checkout, but they are no longer linked to an account. If you referred friends, their accounts are not affected." },
+      { heading: "Before you delete", body: "Deleting is permanent and cannot be undone. Let any open orders arrive or cancel them first, and use any gift card balance or loyalty points you want to keep. Newsletter and restock-alert subscriptions are tied to your email address, not your account, so they stay until you unsubscribe: use the unsubscribe link in any email, or tell us in your request and we will remove them." },
+      { heading: "Contact", body: "Questions about deleting your data can be sent to support@theoffgrid.in. See also our Privacy Policy." }
     ]
   },
   "cookie-policy": {

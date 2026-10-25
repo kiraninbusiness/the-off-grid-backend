@@ -28,6 +28,7 @@ const STATIC_PATHS = [
   { path: '/returns-policy', priority: '0.3' },
   { path: '/cancellation-policy', priority: '0.3' },
   { path: '/privacy-policy', priority: '0.3' },
+  { path: '/delete-account', priority: '0.3' },
   { path: '/cookie-policy', priority: '0.3' },
   { path: '/terms-of-service', priority: '0.3' },
 ];
