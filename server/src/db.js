@@ -80,6 +80,7 @@ export async function initDb(){
   await pool.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_size TEXT");
   await pool.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS selected_color TEXT");
   await pool.query("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS verified_purchase BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS fit_feedback TEXT");
   await pool.query(`
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS reset_token TEXT,
