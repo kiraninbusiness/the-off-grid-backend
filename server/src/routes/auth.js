@@ -548,6 +548,10 @@ router.delete('/me', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE orders SET user_id = NULL WHERE user_id = $1', [req.user.id]);
+    // users.referred_by has no ON DELETE rule, so a customer who referred a
+    // friend could never be deleted (foreign-key error). Detach those
+    // referrals first; the friends keep their own accounts.
+    await client.query('UPDATE users SET referred_by = NULL WHERE referred_by = $1', [req.user.id]);
     await client.query('DELETE FROM users WHERE id = $1', [req.user.id]);
     await client.query('COMMIT');
     res.json({ success: true });
