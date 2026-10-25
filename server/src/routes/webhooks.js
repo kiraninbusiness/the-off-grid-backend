@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import { pool } from '../db.js';
 import { sendEmail, orderStatusEmail } from '../services/email.js';
 import { giftCardEmail } from './giftcards.js';
+import { verifyRazorpayWebhookSignature, webhookEventId } from '../services/webhookSecurity.js';
 import { awardLoyaltyPoints, restoreOrderBenefits } from './orders.js';
 
 const router = Router();
@@ -42,12 +42,9 @@ router.post('/razorpay', async (req, res) => {
     return res.status(400).json({ message: 'Missing signature or body' });
   }
 
-  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  const provided = String(signature);
-  const valid = provided.length === expected.length &&
-    /^[a-f0-9]+$/i.test(provided) &&
-    crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
-  if (!valid) return res.status(400).json({ message: 'Invalid webhook signature' });
+  if (!verifyRazorpayWebhookSignature(rawBody, signature, secret)) {
+    return res.status(400).json({ message: 'Invalid webhook signature' });
+  }
 
   let event;
   try {
@@ -57,7 +54,7 @@ router.post('/razorpay', async (req, res) => {
   }
 
   const headerEventId = req.headers['x-razorpay-event-id'];
-  const eventId = String(headerEventId || crypto.createHash('sha256').update(rawBody).digest('hex')).slice(0, 255);
+  const eventId = webhookEventId(rawBody, headerEventId);
   const client = await pool.connect();
   let lockAcquired = false;
   try {
