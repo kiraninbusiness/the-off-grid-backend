@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
+import { MAX_CART_QUANTITY, isValidCartItem, normalizeMergeItems } from '../services/cartValidation.js';
 
 const router = Router();
 router.use(auth);
-const MAX_CART_QUANTITY = 10;
 
 async function cartWithProducts(userId) {
   const { rows } = await pool.query(
@@ -31,9 +31,7 @@ router.put('/item', async (req, res) => {
   const selected_size = String(req.body?.selected_size || '').trim();
   const selected_color = String(req.body?.selected_color || '').trim();
 
-  if (!Number.isSafeInteger(productId) || productId < 1 ||
-      !Number.isSafeInteger(quantity) || quantity < 1 || quantity > MAX_CART_QUANTITY ||
-      selected_size.length > 80 || selected_color.length > 80) {
+  if (!isValidCartItem(productId, quantity, selected_size, selected_color)) {
     return res.status(400).json({ message: `Choose a valid product and quantity between 1 and ${MAX_CART_QUANTITY}.` });
   }
   const product = await pool.query('SELECT id FROM products WHERE id = $1', [productId]);
@@ -73,24 +71,14 @@ router.delete('/', async (req, res) => {
 
 // Guest-cart merge is atomic and idempotent. A retry with the same request_id never adds quantities twice.
 router.post('/merge', async (req, res) => {
-  if (!Array.isArray(req.body?.items)) return res.status(400).json({ message: 'Cart items must be provided as a list.' });
+  let items;
+  try {
+    items = normalizeMergeItems(req.body?.items);
+  } catch (e) {
+    return res.status(e.status || 400).json({ message: e.message });
+  }
   const requestId = String(req.body?.request_id || '').trim();
   if (!requestId || requestId.length > 128) return res.status(400).json({ message: 'A valid cart migration request ID is required.' });
-
-  const combined = new Map();
-  for (const raw of req.body.items) {
-    const id = Number(raw?.id);
-    const qty = Number(raw?.qty);
-    const selectedSize = String(raw?.selectedSize || '').trim();
-    const selectedColor = String(raw?.selectedColor || '').trim();
-    if (!Number.isSafeInteger(id) || id < 1 || !Number.isSafeInteger(qty) || qty < 1 || qty > MAX_CART_QUANTITY ||
-        selectedSize.length > 80 || selectedColor.length > 80) {
-      return res.status(400).json({ message: 'The guest bag contains an invalid product, variant, or quantity.' });
-    }
-    const key = JSON.stringify([id, selectedSize, selectedColor]);
-    const prior = combined.get(key);
-    combined.set(key, { id, qty: Math.min(MAX_CART_QUANTITY, (prior?.qty || 0) + qty), selectedSize, selectedColor });
-  }
 
   const client = await pool.connect();
   try {
@@ -105,7 +93,7 @@ router.post('/merge', async (req, res) => {
       return res.json(await cartWithProducts(req.user.id));
     }
 
-    const ids = [...new Set([...combined.values()].map(x => x.id))];
+    const ids = [...new Set(items.map(x => x.id))];
     if (ids.length) {
       const found = await client.query('SELECT id FROM products WHERE id = ANY($1::int[])', [ids]);
       if (found.rows.length !== ids.length) {
@@ -115,7 +103,7 @@ router.post('/merge', async (req, res) => {
       }
     }
 
-    for (const item of combined.values()) {
+    for (const item of items) {
       await client.query(
         `INSERT INTO cart_items (user_id, product_id, quantity, selected_size, selected_color, updated_at, abandoned_email_sent)
          VALUES ($1,$2,$3,$4,$5,NOW(),FALSE)
