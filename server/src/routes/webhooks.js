@@ -37,21 +37,17 @@ router.post('/razorpay', async (req, res) => {
   }
 
   const signature = req.headers['x-razorpay-signature'];
-  const rawBody = req.body; // Buffer, thanks to express.raw() in server.js
-
+  const rawBody = req.body;
   if (!signature || !Buffer.isBuffer(rawBody)) {
     return res.status(400).json({ message: 'Missing signature or body' });
   }
 
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
   const provided = String(signature);
-  const valid =
-    provided.length === expected.length &&
-    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
-
-  if (!valid) {
-    return res.status(400).json({ message: 'Invalid webhook signature' });
-  }
+  const valid = provided.length === expected.length &&
+    /^[a-f0-9]+$/i.test(provided) &&
+    crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
+  if (!valid) return res.status(400).json({ message: 'Invalid webhook signature' });
 
   let event;
   try {
@@ -60,15 +56,53 @@ router.post('/razorpay', async (req, res) => {
     return res.status(400).json({ message: 'Invalid JSON payload' });
   }
 
-  // Acknowledge immediately — Razorpay retries on non-2xx, and we don't
-  // want a slow/failed downstream step to trigger duplicate retries for
-  // an event we already understood.
-  res.status(200).json({ ok: true });
-
+  const headerEventId = req.headers['x-razorpay-event-id'];
+  const eventId = String(headerEventId || crypto.createHash('sha256').update(rawBody).digest('hex')).slice(0, 255);
+  const client = await pool.connect();
+  let lockAcquired = false;
   try {
+    // Serialize duplicate deliveries of the same event, including across app instances.
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [eventId]);
+    lockAcquired = true;
+    const prior = await client.query('SELECT status FROM razorpay_webhook_events WHERE event_id = $1', [eventId]);
+    if (prior.rows[0]?.status === 'processed') {
+      return res.status(200).json({ ok: true, duplicate: true });
+    }
+
+    await client.query(
+      `INSERT INTO razorpay_webhook_events (event_id, event_type, payload, status, attempts, last_error)
+       VALUES ($1,$2,$3::jsonb,'processing',1,NULL)
+       ON CONFLICT (event_id) DO UPDATE SET
+         event_type = EXCLUDED.event_type,
+         payload = EXCLUDED.payload,
+         status = 'processing',
+         attempts = razorpay_webhook_events.attempts + 1,
+         last_error = NULL`,
+      [eventId, String(event.event || 'unknown'), JSON.stringify(event)]
+    );
+
     await reconcile(event);
+    await client.query(
+      `UPDATE razorpay_webhook_events
+       SET status = 'processed', processed_at = NOW(), last_error = NULL
+       WHERE event_id = $1`,
+      [eventId]
+    );
+    return res.status(200).json({ ok: true });
   } catch (e) {
     console.error('RAZORPAY WEBHOOK RECONCILE ERROR:', e.message);
+    await client.query(
+      `UPDATE razorpay_webhook_events
+       SET status = 'failed', last_error = $2
+       WHERE event_id = $1`,
+      [eventId, String(e?.message || 'Webhook processing failed').slice(0, 1000)]
+    ).catch(updateError => console.error('Could not persist webhook failure:', updateError.message));
+    // Non-2xx tells Razorpay to retry. Reconciliation is idempotent and the
+    // persisted event row keeps a trace of attempts and failures.
+    return res.status(500).json({ message: 'Webhook processing failed; retry requested.' });
+  } finally {
+    if (lockAcquired) await client.query('SELECT pg_advisory_unlock(hashtext($1))', [eventId]).catch(() => {});
+    client.release();
   }
 });
 
@@ -84,6 +118,7 @@ async function reconcile(event) {
     // and now does the FULL success sequence, not just the status
     // flip: loyalty points, exactly like the normal verified-payment
     // path, so a browser-closed order isn't missing points forever.
+    let giftCardEmailToSend = null;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -115,9 +150,8 @@ async function reconcile(event) {
           [gc.rows[0].id, payment.id]
         );
         const card = updatedCard.rows[0];
-        const { subject, html } = giftCardEmail(card);
-        sendEmail({ to: card.recipient_email, subject, html }).catch(() => {});
-        console.log(`Webhook reconciled + emailed gift card ${card.code} (browser never confirmed).`);
+        giftCardEmailToSend = card;
+        console.log(`Webhook reconciled gift card ${card.code} (browser never confirmed).`);
       }
       await client.query('COMMIT');
     } catch (e) {
@@ -125,6 +159,10 @@ async function reconcile(event) {
       throw e;
     } finally {
       client.release();
+    }
+    if (giftCardEmailToSend) {
+      const { subject, html } = giftCardEmail(giftCardEmailToSend);
+      await sendEmail({ to: giftCardEmailToSend.recipient_email, subject, html }).catch(e => console.error('Gift card email failed:', e.message));
     }
   }
 
