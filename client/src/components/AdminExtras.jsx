@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { RefreshCw, Trash2, EyeOff, Eye, Users, MessageSquareWarning, PackageSearch, Undo2, Gift, Layers, Mail, Boxes, Plus, TrendingUp } from "lucide-react";
 import { api } from "../api";
+import AppHealth from "./AppHealth";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
@@ -359,6 +360,9 @@ export default function AdminExtras({ user }) {
         <button type="button" className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>
           <TrendingUp size={15} /> Analytics
         </button>
+        <button type="button" className={tab === "app" ? "active" : ""} onClick={() => setTab("app")}>
+          APP
+        </button>
       </div>
 
       {tab === "returns" && (
@@ -641,6 +645,8 @@ export default function AdminExtras({ user }) {
           ))}
         </div>
       )}
+
+      {tab === "app" && <AppHealth />}
 
       {tab === "analytics" && analytics && (
         <div className="admin-analytics">
