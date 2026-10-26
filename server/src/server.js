@@ -25,6 +25,7 @@ import contact from './routes/contact.js';
 import notifications from './routes/notifications.js';
 import customer from './routes/customer.js';
 import clientErrors from './routes/clientErrors.js';
+import analyticsRoutes from './routes/analytics.js';
 import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,7 @@ app.use('/api/combos',combos);
 app.use('/api/admin/abandoned-carts',abandoned);
 app.use('/api/contact',contact);
 app.use('/api/client-errors',clientErrors);
+app.use('/api/analytics',analyticsRoutes);
 app.use('/api/notifications',notifications);
 app.use('/api/customer',customer);
 
