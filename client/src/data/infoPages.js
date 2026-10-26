@@ -46,7 +46,7 @@ export const INFO_PAGES = {
     eyebrow: "THE OFF GRID / PRIVACY",
     title: "PRIVACY POLICY.",
     sections: [
-      { heading: "What we collect", body: "Name, email, phone number, shipping address, and order history — collected when you create an account, check out, or contact support." },
+      { heading: "What we collect", body: "Name, email, phone number, shipping address, and order history — collected when you create an account, check out, or contact support. If the mobile app hits a technical error, it may send us an error report (error message, screen name, app and device version). Reports are not linked to your account and are deleted after 90 days." },
       { heading: "How we use it", body: "To process and deliver your orders, send order updates, provide customer support, and (only with your consent) send marketing emails you can unsubscribe from at any time." },
       { heading: "Payment information", body: "We never store your card, UPI, or banking details. All payments are processed securely by Razorpay, which is PCI-DSS compliant." },
       { heading: "Sharing", body: "We share your shipping details only with our delivery partners, and never sell your personal information to third parties." },

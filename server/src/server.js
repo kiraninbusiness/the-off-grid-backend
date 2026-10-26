@@ -24,7 +24,8 @@ import webhooks from './routes/webhooks.js';
 import contact from './routes/contact.js';
 import notifications from './routes/notifications.js';
 import customer from './routes/customer.js';
-import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
+import clientErrors from './routes/clientErrors.js';
+import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -88,6 +89,7 @@ app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 app.use('/api/auth/register', registerLimiter);
 app.use('/api/contact', contactLimiter);
 app.use('/api/newsletter', newsletterLimiter);
+app.use('/api/client-errors', clientErrorLimiter);
 app.use('/api/auth',auth);
 app.use('/api/products',products);
 app.use('/api/orders',orders);
@@ -104,6 +106,7 @@ app.use('/api/cart',cart);
 app.use('/api/combos',combos);
 app.use('/api/admin/abandoned-carts',abandoned);
 app.use('/api/contact',contact);
+app.use('/api/client-errors',clientErrors);
 app.use('/api/notifications',notifications);
 app.use('/api/customer',customer);
 

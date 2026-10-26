@@ -23,4 +23,5 @@ export const forgotPasswordLimiter = make(15 * 60 * 1000, 5, 'Too many password 
 export const registerLimiter = make(60 * 60 * 1000, 5, 'Too many accounts created from this network. Please try again later.');
 export const contactLimiter = make(60 * 60 * 1000, 10, 'Too many messages sent. Please try again later.');
 export const newsletterLimiter = make(60 * 60 * 1000, 5, 'Too many signup attempts. Please try again later.');
+export const clientErrorLimiter = make(60 * 60 * 1000, 30, 'Too many error reports.');
 export const generalApiLimiter = make(15 * 60 * 1000, 300, 'Too many requests. Please slow down.');
