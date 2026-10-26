@@ -208,7 +208,7 @@ router.patch('/:id', auth, admin, async (req, res) => {
 
     // Product came back in stock — notify anyone on the waitlist (fire and forget)
     if (wasOut && Number(rows[0].stock) > 0) {
-      notifyRestock(rows[0].id).catch((e) => console.error('restock notify failed:', e.message));
+      notifyRestock(rows[0].id, null, { wishlist: true }).catch((e) => console.error('restock notify failed:', e.message));
     }
 
     // Price dropped — notify wishlisters whose saved price was higher (fire and forget)

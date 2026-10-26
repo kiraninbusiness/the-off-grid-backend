@@ -194,9 +194,15 @@ router.get('/:id/stock-movements', auth, admin, async (req, res) => {
 });
 
 
-export async function notifyRestock(productId, variantId = null) {
+export async function notifyRestock(productId, variantId = null, { wishlist = false } = {}) {
   const product = await pool.query('SELECT id, name FROM products WHERE id = $1', [productId]);
   if (!product.rows.length) return;
+
+  // Whole-product restock (not a single size): also tell people who wishlisted it.
+  // Only when the caller knows the product really was sold out before (not for returns or single sizes).
+  if (!variantId && wishlist) {
+    await notifyWishlistRestock(product.rows[0]).catch((e) => console.error('wishlist restock notify failed:', e.message));
+  }
 
   // SKU-aware: a customer who asked to be notified about a specific
   // size/color only gets emailed when THAT combination restocks.
@@ -245,3 +251,30 @@ export async function notifyRestock(productId, variantId = null) {
 }
 
 export default router;
+
+/*
+  Wishlist restock: customers who saved a product that was sold out get an in-app + push
+  notification when it is back. Anyone who also has a pending "notify me" alert is skipped
+  here because the alert flow below already tells them (no double message).
+*/
+export async function notifyWishlistRestock(product) {
+  const { rows } = await pool.query(
+    `SELECT w.user_id
+       FROM wishlist_items w
+       JOIN users u ON u.id = w.user_id
+      WHERE w.product_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM stock_alerts sa
+           WHERE sa.product_id = $1 AND sa.email = u.email AND sa.notified = FALSE
+        )`,
+    [product.id]
+  );
+  for (const row of rows) {
+    createNotification(row.user_id, {
+      type: 'back_in_stock',
+      title: `${product.name} is back in stock`,
+      body: 'It is on your wishlist — grab it before it sells out again.',
+      link: `/product/${product.id}`
+    });
+  }
+}
