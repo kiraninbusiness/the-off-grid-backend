@@ -196,6 +196,18 @@ export async function initDb(){
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_card_code TEXT, ADD COLUMN IF NOT EXISTS gift_card_discount INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS combo_discount INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier TEXT, ADD COLUMN IF NOT EXISTS awb TEXT, ADD COLUMN IF NOT EXISTS tracking_url TEXT, ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ`);
+  // Phone OTP login: one account per verified mobile number; codes are stored hashed.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique_idx ON users (phone) WHERE phone IS NOT NULL`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS otp_codes(
+    phone TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    requests_in_hour INTEGER NOT NULL DEFAULT 1,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
 
   /*
     GIFT CARD PAYMENT GATING (P0 fix)

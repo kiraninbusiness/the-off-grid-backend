@@ -9,6 +9,7 @@ import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
 import { sendEmail, passwordResetEmail } from '../services/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { normalizePhone, generateOtp, hashOtp, otpMatches, otpConfigured, sendOtpSms, OTP_TTL_MS, OTP_MAX_ATTEMPTS } from '../services/otp.js';
 
 const router = Router();
 const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
@@ -135,6 +136,83 @@ router.post('/register', async (req, res) => {
   password hash — Google-only accounts have no password to log in
   with directly.
 */
+// POST /api/auth/otp/request { phone } — sends a 6-digit code by SMS. Always answers the same way
+// for any valid number so it cannot be used to find out who has an account.
+router.post('/otp/request', async (req, res) => {
+  if (!otpConfigured()) return res.status(503).json({ message: 'Phone login is not available yet' });
+  const phone = normalizePhone(req.body?.phone);
+  if (!phone) return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number' });
+  try {
+    const prev = (await pool.query('SELECT last_sent_at, requests_in_hour, window_start FROM otp_codes WHERE phone = $1', [phone])).rows[0];
+    if (prev) {
+      const sinceLast = Date.now() - new Date(prev.last_sent_at).getTime();
+      const windowFresh = Date.now() - new Date(prev.window_start).getTime() < 60 * 60 * 1000;
+      if (sinceLast < 30 * 1000) return res.status(429).json({ message: 'Please wait 30 seconds before asking for another code.' });
+      if (windowFresh && prev.requests_in_hour >= 5) return res.status(429).json({ message: 'Too many codes requested for this number. Try again in an hour.' });
+    }
+    const code = generateOtp();
+    await pool.query(
+      `INSERT INTO otp_codes (phone, code_hash, expires_at, attempts, requests_in_hour, window_start, last_sent_at)
+       VALUES ($1,$2,$3,0,1,NOW(),NOW())
+       ON CONFLICT (phone) DO UPDATE SET
+         code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0, last_sent_at = NOW(),
+         requests_in_hour = CASE WHEN NOW() - otp_codes.window_start < INTERVAL '1 hour' THEN otp_codes.requests_in_hour + 1 ELSE 1 END,
+         window_start = CASE WHEN NOW() - otp_codes.window_start < INTERVAL '1 hour' THEN otp_codes.window_start ELSE NOW() END`,
+      [phone, hashOtp(phone, code, process.env.JWT_SECRET), new Date(Date.now() + OTP_TTL_MS)]
+    );
+    await sendOtpSms(phone, code);
+    res.json({ ok: true, expires_in: Math.round(OTP_TTL_MS / 1000) });
+  } catch (e) {
+    console.error('OTP REQUEST ERROR:', e.message);
+    res.status(502).json({ message: 'Could not send the code. Please try again.' });
+  }
+});
+
+// POST /api/auth/otp/verify { phone, code, name?, email? }
+// Known number → signs in. Unknown number → { needs_signup: true } until name and email are supplied.
+// A code never links to an existing email account: only proof of the email would allow that.
+router.post('/otp/verify', async (req, res) => {
+  const phone = normalizePhone(req.body?.phone);
+  const code = String(req.body?.code ?? '').trim();
+  if (!phone || !/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the 6-digit code we sent you' });
+  try {
+    const row = (await pool.query('SELECT code_hash, expires_at, attempts FROM otp_codes WHERE phone = $1', [phone])).rows[0];
+    if (!row || new Date(row.expires_at).getTime() < Date.now() || row.attempts >= OTP_MAX_ATTEMPTS) {
+      return res.status(400).json({ message: 'That code has expired. Please request a new one.' });
+    }
+    if (!otpMatches(phone, code, row.code_hash, process.env.JWT_SECRET)) {
+      await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE phone = $1', [phone]);
+      return res.status(400).json({ message: 'That code is not correct.' });
+    }
+
+    const existing = await pool.query('SELECT id, name, email, role, referral_code FROM users WHERE phone = $1', [phone]);
+    let user = existing.rows[0];
+    if (user) {
+      // Admin accounts must use password + 2FA; a phone code is never enough for them.
+      if (user.role !== 'customer') return res.status(403).json({ message: 'Please sign in with your email and password.' });
+    } else {
+      const name = sanitizeText(req.body?.name, 80);
+      const email = String(req.body?.email ?? '').trim().toLowerCase();
+      if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json({ needs_signup: true });
+      const taken = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
+      if (taken.rows.length) return res.status(409).json({ message: 'That email already has an account. Sign in with your password or Google instead.' });
+      const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+      const myCode = crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6);
+      const inserted = await pool.query(
+        `INSERT INTO users (name, email, password_hash, referral_code, phone) VALUES ($1,$2,$3,$4,$5)
+         RETURNING id, name, email, role, referral_code`,
+        [name, email, hash, myCode, phone]
+      );
+      user = inserted.rows[0];
+    }
+    await pool.query('DELETE FROM otp_codes WHERE phone = $1', [phone]);
+    res.json({ user, token: tokenFor(user) });
+  } catch (e) {
+    console.error('OTP VERIFY ERROR:', e.message);
+    res.status(500).json({ message: 'Could not verify the code. Please try again.' });
+  }
+});
+
 router.post('/google', async (req, res) => {
   if (!googleClient) {
     return res.status(503).json({ message: 'Google Sign-In is not configured yet' });

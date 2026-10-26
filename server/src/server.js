@@ -26,7 +26,7 @@ import notifications from './routes/notifications.js';
 import customer from './routes/customer.js';
 import clientErrors from './routes/clientErrors.js';
 import analyticsRoutes from './routes/analytics.js';
-import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
+import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, otpLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -91,6 +91,7 @@ app.use('/api/auth/register', registerLimiter);
 app.use('/api/contact', contactLimiter);
 app.use('/api/newsletter', newsletterLimiter);
 app.use('/api/client-errors', clientErrorLimiter);
+app.use('/api/auth/otp', otpLimiter);
 app.use('/api/auth',auth);
 app.use('/api/products',products);
 app.use('/api/orders',orders);
