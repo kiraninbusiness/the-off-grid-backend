@@ -195,7 +195,7 @@ export async function initDb(){
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_card_code TEXT, ADD COLUMN IF NOT EXISTS gift_card_discount INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS combo_discount INTEGER NOT NULL DEFAULT 0`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier TEXT, ADD COLUMN IF NOT EXISTS awb TEXT, ADD COLUMN IF NOT EXISTS tracking_url TEXT, ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier TEXT, ADD COLUMN IF NOT EXISTS awb TEXT, ADD COLUMN IF NOT EXISTS tracking_url TEXT, ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ`);
 
   /*
     GIFT CARD PAYMENT GATING (P0 fix)

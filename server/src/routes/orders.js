@@ -1111,6 +1111,9 @@ router.patch(
            delivered_at =
              CASE WHEN $1 = 'delivered' AND delivered_at IS NULL THEN NOW() ELSE delivered_at END,
 
+           processing_at =
+             CASE WHEN $1 IN ('processing','shipped','delivered') AND processing_at IS NULL THEN NOW() ELSE processing_at END,
+
            shipped_at =
              CASE WHEN $1 = 'shipped' AND shipped_at IS NULL THEN NOW() ELSE shipped_at END,
 
