@@ -674,13 +674,23 @@ export default function Admin({ user }) {
       setErr("");
       setSuccess("");
 
+      const body = { status: newStatus };
+      if (newStatus === "shipped") {
+        // Optional courier details: shown to the customer in the app and in the shipped email.
+        // Press Cancel on any prompt to skip it.
+        const courier = window.prompt("Courier name (e.g. Delhivery) — optional:", "");
+        const awb = window.prompt("Tracking / AWB number — optional:", "");
+        const trackingUrl = window.prompt("Tracking link (https://…) — optional:", "");
+        if (courier && courier.trim()) body.courier = courier.trim();
+        if (awb && awb.trim()) body.awb = awb.trim();
+        if (trackingUrl && trackingUrl.trim()) body.tracking_url = trackingUrl.trim();
+      }
+
       await api(
         `/orders/${id}/status`,
         {
           method: "PATCH",
-          body: JSON.stringify({
-            status: newStatus
-          })
+          body: JSON.stringify(body)
         }
       );
 

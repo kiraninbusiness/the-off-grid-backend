@@ -116,8 +116,18 @@ export function orderStatusEmail(order) {
     html: wrap(`Order ${String(order.status || '').toUpperCase()}`, `
       <p>${statusCopy[order.status] || 'Your order status has been updated.'}</p>
       <p>Order: <strong>OG${String(order.id).padStart(6, '0')}</strong></p>
+      ${order.status === 'shipped' ? shipmentHtml(order) : ''}
     `)
   };
+}
+
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function shipmentHtml(order) {
+  const parts = [];
+  if (order.courier) parts.push(`<p>Courier: <strong>${escapeHtml(order.courier)}</strong></p>`);
+  if (order.awb) parts.push(`<p>Tracking number: <strong>${escapeHtml(order.awb)}</strong></p>`);
+  if (order.tracking_url) parts.push(`<p><a href="${escapeHtml(order.tracking_url)}" style="background:#111;color:#fff;padding:12px 20px;text-decoration:none;display:inline-block">TRACK YOUR ORDER</a></p>`);
+  return parts.join('');
 }
 
 export function backInStockEmail(productName, productUrl, variantLabel = null) {

@@ -1,3 +1,4 @@
+import { normalizeShipment } from '../services/shipment.js';
 import { Router } from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
@@ -1085,6 +1086,9 @@ router.patch(
       payment_status
     } = req.body;
 
+    const shipment = normalizeShipment(req.body);
+    if (shipment.error) return res.status(400).json({ message: shipment.error });
+
     const client = await pool.connect();
 
     let updatedOrder;
@@ -1105,7 +1109,14 @@ router.patch(
              ),
 
            delivered_at =
-             CASE WHEN $1 = 'delivered' AND delivered_at IS NULL THEN NOW() ELSE delivered_at END
+             CASE WHEN $1 = 'delivered' AND delivered_at IS NULL THEN NOW() ELSE delivered_at END,
+
+           shipped_at =
+             CASE WHEN $1 = 'shipped' AND shipped_at IS NULL THEN NOW() ELSE shipped_at END,
+
+           courier = COALESCE($4, courier),
+           awb = COALESCE($5, awb),
+           tracking_url = COALESCE($6, tracking_url)
 
          WHERE id = $3
 
@@ -1113,7 +1124,10 @@ router.patch(
         [
           status,
           payment_status,
-          req.params.id
+          req.params.id,
+          shipment.courier ?? null,
+          shipment.awb ?? null,
+          shipment.tracking_url ?? null
         ]
       );
 
@@ -1160,13 +1174,14 @@ router.patch(
         const displayId = `OG${String(updatedOrder.id).padStart(6, '0')}`;
         const statusCopy = {
           processing: `Order ${displayId} is being processed.`,
-          shipped: `Order ${displayId} has shipped.`,
+          shipped: `Order ${displayId} has shipped${updatedOrder.courier ? ` with ${updatedOrder.courier}` : ''}.`,
           delivered: `Order ${displayId} was delivered.`,
           cancelled: `Order ${displayId} was cancelled.`
         };
         createNotification(updatedOrder.user_id, {
           type: 'order_status',
           title: statusCopy[status] || `Order ${displayId} updated`,
+          body: status === 'shipped' && updatedOrder.awb ? `Tracking number: ${updatedOrder.awb}` : null,
           link: `/orders`
         });
       }
