@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth, admin } from '../middleware/auth.js';
+import { describeOffer, isOfferVisible } from '../services/couponOffers.js';
 
 const router = Router();
 
@@ -75,6 +76,27 @@ router.post('/validate', async (req, res) => {
 });
 
 /*
+  CUSTOMER — OFFERS THE ADMIN CHOSE TO SHOW
+  Coupons are secret by default (influencer or one-off codes). Only ones marked
+  "show to customers" are listed here.
+*/
+router.get('/public', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM coupons WHERE is_public = TRUE AND active = TRUE ORDER BY created_at DESC LIMIT 10');
+    res.json(
+      rows.filter((c) => isOfferVisible(c)).map((c) => ({
+        code: c.code,
+        description: describeOffer(c),
+        min_order: Number(c.min_order) || 0
+      }))
+    );
+  } catch (e) {
+    console.error('PUBLIC COUPONS ERROR:', e.message);
+    res.status(500).json({ message: 'Could not load offers' });
+  }
+});
+
+/*
   ADMIN — LIST ALL COUPONS
 */
 router.get('/', auth, admin, async (req, res) => {
@@ -95,7 +117,8 @@ router.post('/', auth, admin, async (req, res) => {
     min_order = 0,
     max_discount = null,
     usage_limit = null,
-    expires_at = null
+    expires_at = null,
+    is_public = false
   } = req.body;
 
   if (!code || !value) {
@@ -107,8 +130,8 @@ router.post('/', auth, admin, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO coupons(code, type, value, min_order, max_discount, usage_limit, expires_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO coupons(code, type, value, min_order, max_discount, usage_limit, expires_at, is_public)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         String(code).trim().toUpperCase(),
         type,
@@ -116,7 +139,8 @@ router.post('/', auth, admin, async (req, res) => {
         min_order,
         max_discount,
         usage_limit,
-        expires_at
+        expires_at,
+        is_public === true
       ]
     );
     res.status(201).json(rows[0]);
@@ -135,7 +159,7 @@ router.post('/', auth, admin, async (req, res) => {
 router.patch('/:id', auth, admin, async (req, res) => {
   const allowed = [
     'code', 'type', 'value', 'min_order',
-    'max_discount', 'usage_limit', 'active', 'expires_at'
+    'max_discount', 'usage_limit', 'active', 'expires_at', 'is_public'
   ];
   const entries = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!entries.length) return res.status(400).json({ message: 'Nothing to update' });

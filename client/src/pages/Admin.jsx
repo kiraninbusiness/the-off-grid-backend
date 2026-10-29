@@ -232,7 +232,8 @@ export default function Admin({ user }) {
     min_order: "0",
     max_discount: "",
     usage_limit: "",
-    expires_at: ""
+    expires_at: "",
+    is_public: false
   };
 
   const [couponForm, setCouponForm] =
@@ -542,7 +543,8 @@ export default function Admin({ user }) {
             couponForm.usage_limit === ""
               ? null
               : Number(couponForm.usage_limit),
-          expires_at: couponForm.expires_at || null
+          expires_at: couponForm.expires_at || null,
+          is_public: !!couponForm.is_public
         })
       });
 
@@ -574,6 +576,18 @@ export default function Admin({ user }) {
       setCouponErr(
         e?.message || "Unable to update coupon."
       );
+    }
+  }
+
+  async function toggleCouponVisibility(coupon) {
+    try {
+      await api(`/coupons/${coupon.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_public: !coupon.is_public })
+      });
+      await load();
+    } catch (e) {
+      setCouponErr(e?.message || "Unable to update coupon.");
     }
   }
 
@@ -2394,6 +2408,17 @@ export default function Admin({ user }) {
                 />
               </label>
 
+              <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={!!couponForm.is_public}
+                  onChange={(e) =>
+                    setCouponForm((c) => ({ ...c, is_public: e.target.checked }))
+                  }
+                />
+                SHOW TO CUSTOMERS IN THE APP
+              </label>
+
             </div>
 
             {couponErr && (
@@ -2475,6 +2500,13 @@ export default function Admin({ user }) {
                     onClick={() => toggleCoupon(c)}
                   >
                     {c.active ? "Deactivate" : "Activate"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleCouponVisibility(c)}
+                  >
+                    {c.is_public ? "Hide from app" : "Show in app"}
                   </button>
 
                   <button

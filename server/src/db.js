@@ -419,6 +419,7 @@ export async function initDb(){
     )
   `);
   await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS max_uses_per_user INTEGER NOT NULL DEFAULT 1`);
+  await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE`);
 
   // Referral abuse: only pay out once the referred user actually completes a purchase
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_reward_paid BOOLEAN NOT NULL DEFAULT FALSE`);
