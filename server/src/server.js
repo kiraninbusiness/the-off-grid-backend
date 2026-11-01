@@ -26,6 +26,7 @@ import notifications from './routes/notifications.js';
 import customer from './routes/customer.js';
 import clientErrors from './routes/clientErrors.js';
 import analyticsRoutes from './routes/analytics.js';
+import bannersRoutes from './routes/banners.js';
 import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, otpLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -110,6 +111,7 @@ app.use('/api/admin/abandoned-carts',abandoned);
 app.use('/api/contact',contact);
 app.use('/api/client-errors',clientErrors);
 app.use('/api/analytics',analyticsRoutes);
+app.use('/api/banners',bannersRoutes);
 app.use('/api/notifications',notifications);
 app.use('/api/customer',customer);
 

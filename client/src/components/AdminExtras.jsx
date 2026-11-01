@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { RefreshCw, Trash2, EyeOff, Eye, Users, MessageSquareWarning, PackageSearch, Undo2, Gift, Layers, Mail, Boxes, Plus, TrendingUp } from "lucide-react";
 import { api } from "../api";
 import AppHealth from "./AppHealth";
+import AdminBanners from "./AdminBanners";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
@@ -363,6 +364,9 @@ export default function AdminExtras({ user }) {
         <button type="button" className={tab === "app" ? "active" : ""} onClick={() => setTab("app")}>
           APP
         </button>
+        <button type="button" className={tab === "banners" ? "active" : ""} onClick={() => setTab("banners")}>
+          BANNERS
+        </button>
       </div>
 
       {tab === "returns" && (
@@ -645,6 +649,8 @@ export default function AdminExtras({ user }) {
           ))}
         </div>
       )}
+
+      {tab === "banners" && <AdminBanners />}
 
       {tab === "app" && <AppHealth />}
 
