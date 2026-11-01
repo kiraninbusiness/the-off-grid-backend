@@ -24,6 +24,14 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - name: Install locked dependencies
         run: npm ci
+      - name: Report dependency audit findings
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e "
+          const a=require('/tmp/npm-audit.json');
+          console.log('Dependency audit summary:',JSON.stringify(a.metadata?.vulnerabilities||{}));
+          for(const [n,i] of Object.entries(a.vulnerabilities||{}))console.log(JSON.stringify({package:n,severity:i.severity,direct:i.isDirect,range:i.range,fixAvailable:i.fixAvailable}));
+          "
       - name: Check JavaScript syntax
         run: find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Run commerce safety regression tests

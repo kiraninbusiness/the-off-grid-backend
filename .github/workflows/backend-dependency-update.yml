@@ -1,0 +1,44 @@
+name: Backend dependency update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/run-backend-dependency-update"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Upgrade multer to 2.x (upload middleware; same API we use)
+        run: npm install multer@^2 --save
+      - name: Apply non-breaking security fixes
+        run: npm audit fix || echo "Some advisories need breaking changes and were left alone."
+      - name: Verify
+        run: |
+          find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm test
+          node -e "import('multer').then(m=>{const u=m.default({storage:m.default.memoryStorage(),limits:{fileSize:1}});if(typeof u.single!=='function')process.exit(1);console.log('multer ok')})"
+      - name: Commit
+        working-directory: .
+        run: |
+          if git diff --quiet -- server/package.json server/package-lock.json; then echo "No changes."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/package.json server/package-lock.json
+          git commit -m "Upgrade multer to 2.x and apply compatible security fixes"
+          git push
