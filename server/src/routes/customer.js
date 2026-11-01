@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
+import { tierProgress, TIERS, birthdayRewardDue, cleanBirthday, BIRTHDAY_POINTS } from '../services/club.js';
 
 const router = Router();
 router.use(auth);
@@ -18,6 +19,55 @@ router.get('/loyalty', async (req,res)=>{
     const spend = await pool.query(`SELECT COALESCE(SUM(total),0)::int total FROM orders WHERE user_id=$1 AND status='delivered'`,[req.user.id]);
     res.json({points:Number(user.rows[0].loyalty_points)||0, referral_code:user.rows[0].referral_code, referral_count:referrals.rows[0].count, delivered_spend:Number(spend.rows[0].total)||0, transactions:orders.rows});
   } catch(e){ console.error(e); res.status(500).json({message:'Could not load rewards'}); }
+});
+
+// OFF GRID CLUB: tier, progress, perks, birthday reward and points history.
+router.get('/club', async (req,res)=>{
+  try {
+    const u = await pool.query(`SELECT loyalty_points, referral_code, birthday, birthday_reward_year FROM users WHERE id=$1`,[req.user.id]);
+    if(!u.rows.length) return res.status(404).json({message:'User not found'});
+    const row = u.rows[0];
+    const spend = await pool.query(`SELECT COALESCE(SUM(total),0)::int AS total FROM orders WHERE user_id=$1 AND status='delivered'`,[req.user.id]);
+    const dob = row.birthday ? new Date(row.birthday).toISOString().slice(0,10) : null;
+    let birthdayGranted = 0;
+    if (dob && birthdayRewardDue(dob, row.birthday_reward_year)) {
+      // The WHERE clause makes the grant happen once even if two requests race.
+      const year = new Date().getUTCFullYear();
+      const claimed = await pool.query(
+        `UPDATE users SET birthday_reward_year=$1, loyalty_points=loyalty_points+$2
+          WHERE id=$3 AND (birthday_reward_year IS DISTINCT FROM $1) RETURNING loyalty_points`,
+        [year, BIRTHDAY_POINTS, req.user.id]);
+      if (claimed.rows.length) {
+        birthdayGranted = BIRTHDAY_POINTS;
+        row.loyalty_points = claimed.rows[0].loyalty_points;
+        await pool.query(`INSERT INTO points_ledger (user_id, delta, reason) VALUES ($1,$2,'birthday')`,[req.user.id, BIRTHDAY_POINTS]);
+      }
+    }
+    const history = await pool.query(`SELECT id, delta, reason, order_id, created_at FROM points_ledger WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,[req.user.id]);
+    const referrals = await pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE referred_by=$1`,[req.user.id]);
+    res.json({
+      ...tierProgress(spend.rows[0].total),
+      points: Number(row.loyalty_points)||0,
+      referral_code: row.referral_code,
+      referral_count: referrals.rows[0].count,
+      birthday: dob,
+      birthday_points_granted: birthdayGranted,
+      birthday_reward_points: BIRTHDAY_POINTS,
+      tiers: TIERS.map(({key,name,minSpend,multiplier,perks})=>({key,name,min_spend:minSpend,multiplier,perks})),
+      history: history.rows,
+    });
+  } catch(e){ console.error(e); res.status(500).json({message:'Could not load OFF GRID CLUB'}); }
+});
+
+// Birthday can be set once, so the yearly reward cannot be farmed by changing it.
+router.put('/birthday', async (req,res)=>{
+  const dob = cleanBirthday(req.body?.birthday);
+  if (!dob) return res.status(400).json({message:'Enter a valid date of birth (YYYY-MM-DD)'});
+  try {
+    const r = await pool.query(`UPDATE users SET birthday=$1 WHERE id=$2 AND birthday IS NULL RETURNING id`,[dob, req.user.id]);
+    if (!r.rows.length) return res.status(409).json({message:'Your birthday is already saved. Contact support to change it.'});
+    res.json({birthday: dob});
+  } catch(e){ console.error(e); res.status(500).json({message:'Could not save birthday'}); }
 });
 
 router.get('/referrals', async (req,res)=>{

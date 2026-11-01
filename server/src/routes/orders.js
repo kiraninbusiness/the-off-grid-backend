@@ -8,6 +8,7 @@ import { checkCoupon } from './coupons.js';
 import { sendEmail, orderConfirmationEmail, orderStatusEmail } from '../services/email.js';
 import { logStockMovement } from './variants.js';
 import { createNotification } from '../services/notifications.js';
+import { pointsForOrder } from '../services/club.js';
 
 const router = Router();
 
@@ -33,7 +34,13 @@ export async function awardLoyaltyPoints(client, orderId) {
   if (!orderResult.rows.length) return;
 
   const order = orderResult.rows[0];
-  const points = Math.floor(Number(order.total) / 100);
+  // Members on higher tiers earn bonus points. Tier is based on spend from earlier settled orders.
+  const spendRow = await client.query(
+    `SELECT COALESCE(SUM(total),0)::int AS spend FROM orders WHERE user_id = $1 AND points_awarded = TRUE AND id <> $2`,
+    [order.user_id, orderId]
+  );
+  const split = pointsForOrder(order.total, spendRow.rows[0].spend);
+  const points = split.base + split.bonus;
 
   if (points <= 0) {
     await client.query(
@@ -49,6 +56,16 @@ export async function awardLoyaltyPoints(client, orderId) {
      WHERE id = $2`,
     [points, order.user_id]
   );
+  await client.query(
+    `INSERT INTO points_ledger (user_id, delta, reason, order_id) VALUES ($1, $2, 'purchase', $3)`,
+    [order.user_id, split.base, orderId]
+  );
+  if (split.bonus > 0) {
+    await client.query(
+      `INSERT INTO points_ledger (user_id, delta, reason, order_id) VALUES ($1, $2, $3, $4)`,
+      [order.user_id, split.bonus, `${split.tier}_bonus`, orderId]
+    );
+  }
 
   await client.query(
     `UPDATE orders
@@ -98,6 +115,10 @@ export async function awardLoyaltyPoints(client, orderId) {
          SET loyalty_points = loyalty_points + $1
          WHERE id = $2`,
         [REFERRAL_BONUS, referredBy]
+      );
+      await client.query(
+        `INSERT INTO points_ledger (user_id, delta, reason, order_id) VALUES ($1, $2, 'referral', $3)`,
+        [referredBy, REFERRAL_BONUS, orderId]
       );
     }
 
@@ -451,6 +472,10 @@ router.post('/create', auth, async (req, res) => {
          WHERE id = $2`,
         [pointsToRedeem, req.user.id]
       );
+      await client.query(
+        `INSERT INTO points_ledger (user_id, delta, reason) VALUES ($1, $2, 'redeemed')`,
+        [req.user.id, -pointsToRedeem]
+      );
     }
 
 
@@ -764,6 +789,10 @@ export async function restoreOrderBenefits(client, order) {
        SET loyalty_points = loyalty_points + $1
        WHERE id = $2`,
       [Number(order.points_redeemed), Number(order.user_id)]
+    );
+    await client.query(
+      `INSERT INTO points_ledger (user_id, delta, reason, order_id) VALUES ($1, $2, 'refunded', $3)`,
+      [Number(order.user_id), Number(order.points_redeemed), Number(order.id)]
     );
   }
 

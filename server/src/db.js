@@ -419,6 +419,17 @@ export async function initDb(){
     )
   `);
   await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS max_uses_per_user INTEGER NOT NULL DEFAULT 1`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS points_ledger(
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    delta INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    order_id INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS points_ledger_user_idx ON points_ledger (user_id, id DESC)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday DATE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_reward_year INTEGER`);
   await pool.query(`CREATE TABLE IF NOT EXISTS review_photos(
     id SERIAL PRIMARY KEY,
     review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
