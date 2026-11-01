@@ -67,12 +67,12 @@ function uploadBufferToCloudinary(buffer, isVideo) {
 }
 
 // POST /api/upload — admin only, single file field named "file"
-router.post('/', auth, admin, (req, res) => {
+const receive = (uploader, imagesOnly) => (req, res) => {
   if (!useCloudinary && isProduction) {
     return res.status(503).json({ message: 'File uploads are not configured for production yet — CLOUDINARY_URL is missing.' });
   }
 
-  upload.single('file')(req, res, async (err) => {
+  uploader.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
     if (!req.file) return res.status(400).json({ message: 'No file provided' });
 
@@ -87,7 +87,7 @@ router.post('/', auth, admin, (req, res) => {
 
       const isImage = ALLOWED_IMAGE_MIME.has(detected.mime);
       const isVideo = ALLOWED_VIDEO_MIME.has(detected.mime);
-      if (!isImage && !isVideo) {
+      if (!isImage && !(isVideo && !imagesOnly)) {
         return res.status(400).json({ message: `File type ${detected.mime} is not allowed` });
       }
 
@@ -128,6 +128,14 @@ router.post('/', auth, admin, (req, res) => {
       res.status(400).json({ message: 'This file could not be processed — it may be corrupted or not a genuine image/video.' });
     }
   });
-});
+};
+
+// Admin: product images and videos.
+router.post('/', auth, admin, receive(upload, false));
+
+// Customers: review photos. Any signed-in customer, images only, smaller limit.
+// Photos stay hidden until an admin approves them.
+const reviewUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+router.post('/review-photo', auth, receive(reviewUpload, true));
 
 export default router;

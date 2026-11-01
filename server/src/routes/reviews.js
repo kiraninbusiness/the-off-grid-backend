@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { normalizePhotoUrls } from '../services/reviewPhotos.js';
 
 const router = Router();
 
@@ -17,6 +18,12 @@ router.get('/:productId', async (req, res) => {
      ORDER BY r.created_at DESC`,
     [productId]
   );
+
+  // Only photos an admin approved are public.
+  const photoRows = rows.length
+    ? (await pool.query(`SELECT review_id, url FROM review_photos WHERE status = 'approved' AND review_id = ANY($1::int[]) ORDER BY id`, [rows.map((x) => x.id)])).rows
+    : [];
+  for (const row of rows) row.photos = photoRows.filter((p) => p.review_id === row.id).map((p) => p.url);
 
   const count = rows.length;
   const average = count
@@ -43,7 +50,10 @@ router.post('/:productId', auth, async (req, res) => {
     return res.status(400).json({ message: 'Rating must be between 1 and 5' });
   }
 
-  if (!/^\\d+$/.test(String(productId)) || Number(productId) <= 0) return res.status(400).json({ message: 'Invalid product' });
+  if (!/^\d+$/.test(String(productId)) || Number(productId) <= 0) return res.status(400).json({ message: 'Invalid product' });
+
+  const photoResult = normalizePhotoUrls(req.body.photos);
+  if (photoResult.error) return res.status(400).json({ message: photoResult.error });
 
   const cleanComment = sanitizeText(comment, 1000);
   const normalizedFit = fit_feedback == null || String(fit_feedback).trim() === '' ? null : String(fit_feedback).trim().toLowerCase().replace(/[_-]+/g, ' ');
@@ -74,8 +84,17 @@ router.post('/:productId', auth, async (req, res) => {
     [productId, req.user.id, ratingNum, cleanComment, verifiedPurchase, normalizedFit]
   );
 
+  // New photos always start as "pending"; sending photos replaces the earlier ones.
+  if (!photoResult.skip) {
+    await pool.query('DELETE FROM review_photos WHERE review_id = $1', [rows[0].id]);
+    for (const url of photoResult.urls) {
+      await pool.query(`INSERT INTO review_photos (review_id, url, status) VALUES ($1, $2, 'pending')`, [rows[0].id, url]);
+    }
+  }
+
   res.status(201).json({
     ...rows[0],
+    photos_pending: photoResult.skip ? 0 : photoResult.urls.length,
     user_name: req.user.name || 'You'
   });
 });

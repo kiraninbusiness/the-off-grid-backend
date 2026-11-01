@@ -25,4 +25,5 @@ export const contactLimiter = make(60 * 60 * 1000, 10, 'Too many messages sent. 
 export const newsletterLimiter = make(60 * 60 * 1000, 5, 'Too many signup attempts. Please try again later.');
 export const clientErrorLimiter = make(60 * 60 * 1000, 30, 'Too many error reports.');
 export const otpLimiter = make(15 * 60 * 1000, 20, 'Too many code requests. Please try again later.');
+export const reviewPhotoLimiter = make(60 * 60 * 1000, 20, 'Too many photo uploads. Please try again later.');
 export const generalApiLimiter = make(15 * 60 * 1000, 300, 'Too many requests. Please slow down.');

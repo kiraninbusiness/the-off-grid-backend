@@ -43,7 +43,9 @@ router.get('/customers/:id', async (req, res) => {
 // GET /api/admin/reviews — all reviews (including hidden) for moderation
 router.get('/reviews', async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT r.*, u.name AS user_name, p.name AS product_name
+    SELECT r.*, u.name AS user_name, p.name AS product_name,
+      COALESCE((SELECT json_agg(json_build_object('id', ph.id, 'url', ph.url, 'status', ph.status) ORDER BY ph.id)
+                FROM review_photos ph WHERE ph.review_id = r.id), '[]'::json) AS photos
     FROM reviews r
     JOIN users u ON u.id = r.user_id
     JOIN products p ON p.id = r.product_id
@@ -61,6 +63,16 @@ router.patch('/reviews/:id', async (req, res) => {
   );
   if (!rows.length) return res.status(404).json({ message: 'Review not found' });
   logAdminAction(req, { action: hidden ? 'review_hidden' : 'review_unhidden', entity: 'review', entityId: req.params.id });
+  res.json(rows[0]);
+});
+
+// PATCH /api/admin/review-photos/:id — approve or reject a customer photo
+router.patch('/review-photos/:id', async (req, res) => {
+  const { status } = req.body;
+  if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ message: 'status must be approved or rejected' });
+  const { rows } = await pool.query('UPDATE review_photos SET status = $1 WHERE id = $2 RETURNING id, review_id, url, status', [status, req.params.id]);
+  if (!rows.length) return res.status(404).json({ message: 'Photo not found' });
+  logAdminAction(req, { action: `review_photo_${status}`, entity: 'review_photo', entityId: req.params.id });
   res.json(rows[0]);
 });
 
