@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
+import { estimateDelivery } from '../services/deliveryEstimate.js';
 import { tierProgress, TIERS, birthdayRewardDue, cleanBirthday, BIRTHDAY_POINTS } from '../services/club.js';
 
 const router = Router();
@@ -105,7 +106,9 @@ router.get('/serviceability/:pincode', async(req,res)=>{
   const p=String(req.params.pincode||'').trim();
   if(!/^\d{6}$/.test(p)) return res.status(400).json({serviceable:false,message:'Enter a valid 6-digit pincode.'});
   // Store-level estimate; final courier availability is confirmed at checkout.
-  res.json({serviceable:true,pincode:p,estimated_days:'3–7 business days',cod:true,free_shipping_threshold:1499});
+  const est=estimateDelivery(p);
+  if(!est) return res.status(400).json({serviceable:false,message:'Enter a valid 6-digit pincode.'});
+  res.json({serviceable:true,pincode:p,estimated_days:est.estimated_days,estimated_delivery:{min_date:est.min_date,max_date:est.max_date,label:est.label},cod:true,free_shipping_threshold:1499});
 });
 
 export default router;

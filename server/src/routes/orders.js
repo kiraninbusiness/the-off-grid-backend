@@ -10,6 +10,7 @@ import { logStockMovement } from './variants.js';
 import { createNotification } from '../services/notifications.js';
 import { pointsForOrder, earlyAccessInfo } from '../services/club.js';
 import { deliveredSpend } from '../services/clubSpend.js';
+import { estimateDelivery } from '../services/deliveryEstimate.js';
 
 const router = Router();
 
@@ -749,10 +750,17 @@ router.get('/mine', auth, async (req, res) => {
     itemsByOrder[item.order_id].push(item);
   }
 
-  const withItems = rows.map((order) => ({
-    ...order,
-    items: itemsByOrder[order.id] || []
-  }));
+  const withItems = rows.map((order) => {
+    // Arrival window for orders still on their way (not delivered, cancelled or returned).
+    const open = ['pending', 'processing', 'shipped'].includes(order.status);
+    const shipped = order.status === 'shipped' && order.shipped_at;
+    const est = open ? estimateDelivery(order.shipping_pincode, shipped ? order.shipped_at : order.created_at, { shipped: !!shipped }) : null;
+    return {
+      ...order,
+      estimated_delivery: est ? { min_date: est.min_date, max_date: est.max_date, label: est.label } : null,
+      items: itemsByOrder[order.id] || []
+    };
+  });
 
   res.json(withItems);
 });
