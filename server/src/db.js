@@ -647,6 +647,14 @@ export async function initDb(){
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS razorpay_webhook_events_status_idx ON razorpay_webhook_events(status, received_at)`);
 
+  // Payment captured after an online order was already cancelled: keep it visible
+  // for an explicit admin refund workflow instead of silently ignoring a real charge.
+  await pool.query(`ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS payment_reconciliation_status TEXT,
+    ADD COLUMN IF NOT EXISTS razorpay_refund_id TEXT,
+    ADD COLUMN IF NOT EXISTS refund_settled_at TIMESTAMPTZ
+  `);
+
   // Creator programme applications. This stores application/moderation data only;
   // payout details and commission liabilities are deliberately not collected here.
   await pool.query(`CREATE TABLE IF NOT EXISTS creator_applications (
