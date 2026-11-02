@@ -32,7 +32,7 @@ import visualSearch from './routes/visualSearch.js';
 import clientErrors from './routes/clientErrors.js';
 import analyticsRoutes from './routes/analytics.js';
 import bannersRoutes from './routes/banners.js';
-import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, otpLimiter, reviewPhotoLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
+import { loginLimiter, forgotPasswordLimiter, registerLimiter, contactLimiter, newsletterLimiter, clientErrorLimiter, otpLimiter, reviewPhotoLimiter, visualSearchLimiter, generalApiLimiter } from './middleware/rateLimiters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app=express();
@@ -99,6 +99,7 @@ app.use('/api/newsletter', newsletterLimiter);
 app.use('/api/client-errors', clientErrorLimiter);
 app.use('/api/auth/otp', otpLimiter);
 app.use('/api/upload/review-photo', reviewPhotoLimiter);
+app.use('/api/visual-search', visualSearchLimiter);
 app.use('/api/auth',auth);
 app.use('/api/products',products);
 app.use('/api/orders',orders);
