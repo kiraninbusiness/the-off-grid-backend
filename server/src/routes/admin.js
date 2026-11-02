@@ -172,4 +172,46 @@ router.get('/audit-log', async (req, res) => {
   res.json(rows);
 });
 
+// Creator programme moderation — applications only; commission/payout controls are not enabled.
+router.get('/creators', async (req, res) => {
+  const status = String(req.query.status || '').trim();
+  const allowed = new Set(['pending', 'approved', 'rejected', 'paused']);
+  if (status && !allowed.has(status)) return res.status(400).json({ message: 'Invalid creator status' });
+  const values = [];
+  const where = status ? (values.push(status), 'WHERE ca.status = $1') : '';
+  const { rows } = await pool.query(
+    `SELECT ca.*, u.name AS user_name, u.email AS user_email
+     FROM creator_applications ca JOIN users u ON u.id = ca.user_id
+     ${where}
+     ORDER BY CASE WHEN ca.status = 'pending' THEN 0 ELSE 1 END, ca.created_at DESC
+     LIMIT 200`,
+    values
+  );
+  res.json(rows);
+});
+
+router.patch('/creators/:id', async (req, res) => {
+  const status = String(req.body?.status || '');
+  const note = typeof req.body?.admin_note === 'string' ? req.body.admin_note.trim().slice(0, 500) : null;
+  if (!['approved', 'rejected', 'paused'].includes(status)) {
+    return res.status(400).json({ message: 'Choose approved, rejected or paused' });
+  }
+  const before = await pool.query('SELECT * FROM creator_applications WHERE id = $1', [req.params.id]);
+  if (!before.rows.length) return res.status(404).json({ message: 'Creator application not found' });
+  const { rows } = await pool.query(
+    `UPDATE creator_applications
+     SET status = $1, admin_note = $2, reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
+     WHERE id = $4 RETURNING *`,
+    [status, note, req.user.id, req.params.id]
+  );
+  logAdminAction(req, {
+    action: 'creator_application_' + status,
+    entity: 'creator_application',
+    entityId: req.params.id,
+    oldValue: { status: before.rows[0].status },
+    newValue: { status, admin_note: note }
+  });
+  res.json(rows[0]);
+});
+
 export default router;
