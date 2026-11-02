@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
+import { similarity, buildProfile, profileScore, rank } from '../services/recommender.js';
 import { estimateDelivery } from '../services/deliveryEstimate.js';
 import { tierProgress, TIERS, birthdayRewardDue, cleanBirthday, BIRTHDAY_POINTS } from '../services/club.js';
 
@@ -80,17 +81,24 @@ router.get('/referrals', async (req,res)=>{
 
 router.get('/recommendations', async (req,res)=>{
   const productId=Number(req.query.product_id)||0;
+  const limit=Math.min(20,Math.max(1,Number(req.query.limit)||8));
   try {
+    const pool_=await pool.query(`SELECT * FROM products WHERE stock>0 ORDER BY created_at DESC LIMIT 300`);
+    const candidates=pool_.rows;
     if(productId){
-      const p=await pool.query(`SELECT category,gender FROM products WHERE id=$1`,[productId]);
-      if(p.rows.length){
-        const {rows}=await pool.query(`SELECT * FROM products WHERE id<>$1 AND category=$2 AND stock>0 ORDER BY created_at DESC LIMIT 8`,[productId,p.rows[0].category]);
-        return res.json(rows);
+      const base=await pool.query(`SELECT * FROM products WHERE id=$1`,[productId]);
+      if(base.rows.length){
+        return res.json(rank(candidates,(c)=>similarity(base.rows[0],c),{n:limit,exclude:new Set([productId]),maxPerCategory:limit}));
       }
     }
-    const {rows}=await pool.query(`SELECT * FROM products WHERE stock>0 ORDER BY created_at DESC LIMIT 8`);
-    res.json(rows);
-  } catch(e){res.status(500).json({message:'Could not load recommendations'});}
+    // Personalised: based on the customer's wishlist and past orders; new customers see the newest pieces.
+    const wished=await pool.query(`SELECT p.* FROM wishlist_items w JOIN products p ON p.id=w.product_id WHERE w.user_id=$1`,[req.user.id]);
+    const bought=await pool.query(`SELECT DISTINCT p.* FROM order_items oi JOIN orders o ON o.id=oi.order_id JOIN products p ON p.id=oi.product_id WHERE o.user_id=$1 AND o.status<>'cancelled'`,[req.user.id]);
+    const profile=buildProfile(wished.rows,bought.rows);
+    if(profile.empty) return res.json(candidates.slice(0,limit));
+    const owned=new Set(bought.rows.map((x)=>Number(x.id)));
+    res.json(rank(candidates,(c)=>profileScore(profile,c),{n:limit,exclude:owned}));
+  } catch(e){console.error('RECOMMENDATIONS FAILED:',e.message);res.status(500).json({message:'Could not load recommendations'});}
 });
 
 router.post('/stock-alerts', async(req,res)=>{
