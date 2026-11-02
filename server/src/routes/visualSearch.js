@@ -27,9 +27,9 @@ router.post('/', (req, res) => {
         .rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 82 }).toBuffer();
       const prompt = 'You are a fashion catalogue visual-search assistant. Inspect the uploaded clothing/product photo and return ONLY compact JSON with keys search_query, category, color, garment, style. search_query must be a short 3-8 word description useful for finding similar apparel in an online catalogue. Do not identify people or infer personal attributes. If no apparel/product is visible, set search_query to an empty string.';
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(apiKey), {
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: image.toString('base64') } }] }],
           generationConfig: { temperature: 0.1, responseMimeType: 'application/json', maxOutputTokens: 160 }
