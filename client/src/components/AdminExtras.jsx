@@ -4,6 +4,7 @@ import { api } from "../api";
 import AppHealth from "./AppHealth";
 import AdminBanners from "./AdminBanners";
 import AdminLooks from "./AdminLooks";
+import AdminCommunity from "./AdminCommunity";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
@@ -382,6 +383,9 @@ export default function AdminExtras({ user }) {
         <button type="button" className={tab === "looks" ? "active" : ""} onClick={() => setTab("looks")}>
           LOOKS
         </button>
+        <button type="button" className={tab === "community" ? "active" : ""} onClick={() => setTab("community")}>
+          COMMUNITY
+        </button>
       </div>
 
       {tab === "returns" && (
@@ -683,6 +687,7 @@ export default function AdminExtras({ user }) {
 
       {tab === "banners" && <AdminBanners />}
       {tab === "looks" && <AdminLooks />}
+      {tab === "community" && <AdminCommunity />}
 
       {tab === "app" && <AppHealth />}
 
