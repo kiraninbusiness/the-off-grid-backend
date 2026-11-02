@@ -6,22 +6,11 @@ import { sendEmail, returnStatusEmail } from '../services/email.js';
 import { logStockMovement, notifyRestock } from './variants.js';
 import { createNotification } from '../services/notifications.js';
 import { logAdminAction } from '../services/auditLog.js';
+import { calculateRefundPointsReversal } from '../services/loyaltyRefunds.js';
 
 const router = Router();
 
 const RETURN_WINDOW_DAYS = 10;
-// Pure calculation used by return-refund loyalty clawbacks.
-export function calculateRefundPointsReversal({ pointsEarned, orderTotal, cumulativeRefund, previouslyReversed }) {
-  const earned = Math.max(0, Math.floor(Number(pointsEarned) || 0));
-  const total = Number(orderTotal);
-  const refunded = Math.max(0, Number(cumulativeRefund) || 0);
-  const prior = Math.max(0, Math.floor(Number(previouslyReversed) || 0));
-  if (!Number.isFinite(total) || total <= 0 || earned === 0) return 0;
-  const target = Math.min(earned, Math.floor(earned * Math.min(refunded, total) / total));
-  return Math.max(0, target - Math.min(prior, earned));
-}
-
-
 // Order items relevant to a return: the single referenced line item,
 // or — for older requests made before order_item_id was required —
 // every item on the order.
