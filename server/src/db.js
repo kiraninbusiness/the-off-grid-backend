@@ -647,6 +647,26 @@ export async function initDb(){
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS razorpay_webhook_events_status_idx ON razorpay_webhook_events(status, received_at)`);
 
+  // Creator programme applications. This stores application/moderation data only;
+  // payout details and commission liabilities are deliberately not collected here.
+  await pool.query(`CREATE TABLE IF NOT EXISTS creator_applications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL CHECK (platform IN ('instagram','youtube','tiktok')),
+    handle TEXT NOT NULL,
+    secondary_handle TEXT,
+    follower_count BIGINT NOT NULL DEFAULT 0 CHECK (follower_count >= 0),
+    audience TEXT NOT NULL,
+    bio TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','paused')),
+    admin_note TEXT,
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS creator_applications_status_created_idx ON creator_applications(status, created_at DESC)`);
+
   // Order modification before shipping — track that an order was edited
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`);
 
