@@ -19,6 +19,7 @@ import upload from './routes/upload.js';
 import giftcards from './routes/giftcards.js';
 import cart from './routes/cart.js';
 import combos from './routes/combos.js';
+import looks from './routes/looks.js';
 import campaigns, { startCampaignScheduler } from './routes/campaigns.js';
 import abandoned, { startAbandonedCartScheduler } from './routes/abandoned.js';
 import webhooks from './routes/webhooks.js';
@@ -107,6 +108,7 @@ app.use('/api/returns',returns);
 // Mounted before adminRoutes: its router-wide admin login check would otherwise block the cron-secret route.
 app.use('/api/admin/abandoned-carts',abandoned);
 app.use('/api/campaigns',campaigns);
+app.use('/api/looks',looks);
 app.use('/api/admin',adminRoutes);
 app.use('/api/upload',upload);
 app.use('/api/gift-cards',giftcards);

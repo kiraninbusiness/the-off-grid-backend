@@ -3,6 +3,7 @@ import { RefreshCw, Trash2, EyeOff, Eye, Users, MessageSquareWarning, PackageSea
 import { api } from "../api";
 import AppHealth from "./AppHealth";
 import AdminBanners from "./AdminBanners";
+import AdminLooks from "./AdminLooks";
 
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
@@ -378,6 +379,9 @@ export default function AdminExtras({ user }) {
         <button type="button" className={tab === "banners" ? "active" : ""} onClick={() => setTab("banners")}>
           BANNERS
         </button>
+        <button type="button" className={tab === "looks" ? "active" : ""} onClick={() => setTab("looks")}>
+          LOOKS
+        </button>
       </div>
 
       {tab === "returns" && (
@@ -678,6 +682,7 @@ export default function AdminExtras({ user }) {
       )}
 
       {tab === "banners" && <AdminBanners />}
+      {tab === "looks" && <AdminLooks />}
 
       {tab === "app" && <AppHealth />}
 
