@@ -124,7 +124,18 @@ async function reconcile(event) {
         [payment.order_id]
       );
       const order = rows[0];
-      if (order && order.payment_status !== 'paid' && order.status !== 'cancelled') {
+      if (order && order.status === 'cancelled' && order.payment_status !== 'paid') {
+        // A late capture must never resurrect a customer-cancelled order.
+        // Record the real charge and flag it for a full admin refund.
+        await client.query(
+          `UPDATE orders
+           SET payment_status = 'paid', razorpay_payment_id = $2,
+               payment_reconciliation_status = 'refund_required'
+           WHERE id = $1`,
+          [order.id, payment.id]
+        );
+        console.error(`PAYMENT EXCEPTION: cancelled order ${order.id} was captured by Razorpay; admin refund required.`);
+      } else if (order && order.payment_status !== 'paid') {
         await client.query(
           `UPDATE orders SET payment_status = 'paid', status = 'processing', razorpay_payment_id = $2 WHERE id = $1`,
           [order.id, payment.id]
@@ -209,6 +220,14 @@ async function reconcile(event) {
     // Razorpay confirms the money actually moved.
     await pool.query(
       `UPDATE returns SET refund_settled_at = NOW() WHERE razorpay_refund_id = $1`,
+      [refund.id]
+    );
+    await pool.query(
+      `UPDATE orders
+       SET refund_settled_at = NOW(),
+           payment_reconciliation_status = 'refund_settled'
+       WHERE razorpay_refund_id = $1
+         AND payment_reconciliation_status = 'refund_issued'`,
       [refund.id]
     );
   }

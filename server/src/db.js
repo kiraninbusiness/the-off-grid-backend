@@ -647,6 +647,45 @@ export async function initDb(){
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS razorpay_webhook_events_status_idx ON razorpay_webhook_events(status, received_at)`);
 
+  // Payment captured after an online order was already cancelled: keep it visible
+  // for an explicit admin refund workflow instead of silently ignoring a real charge.
+  await pool.query(`ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS payment_reconciliation_status TEXT,
+    ADD COLUMN IF NOT EXISTS razorpay_refund_id TEXT,
+    ADD COLUMN IF NOT EXISTS refund_settled_at TIMESTAMPTZ
+  `);
+
+  // Idempotent loyalty clawbacks for issued return refunds.
+  await pool.query(`CREATE TABLE IF NOT EXISTS loyalty_refund_reversals (
+    id SERIAL PRIMARY KEY,
+    return_id INTEGER NOT NULL UNIQUE REFERENCES returns(id) ON DELETE CASCADE,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    refund_amount INTEGER NOT NULL CHECK (refund_amount > 0),
+    points_reversed INTEGER NOT NULL CHECK (points_reversed >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
+  // Creator programme applications. This stores application/moderation data only;
+  // payout details and commission liabilities are deliberately not collected here.
+  await pool.query(`CREATE TABLE IF NOT EXISTS creator_applications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL CHECK (platform IN ('instagram','youtube','tiktok')),
+    handle TEXT NOT NULL,
+    secondary_handle TEXT,
+    follower_count BIGINT NOT NULL DEFAULT 0 CHECK (follower_count >= 0),
+    audience TEXT NOT NULL,
+    bio TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','paused')),
+    admin_note TEXT,
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS creator_applications_status_created_idx ON creator_applications(status, created_at DESC)`);
+
   // Order modification before shipping — track that an order was edited
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`);
 

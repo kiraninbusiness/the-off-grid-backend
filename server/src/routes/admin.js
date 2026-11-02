@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import Razorpay from 'razorpay';
 import { pool } from '../db.js';
 import { auth, admin } from '../middleware/auth.js';
 import { logAdminAction } from '../services/auditLog.js';
@@ -170,6 +171,124 @@ router.get('/audit-log', async (req, res) => {
     `SELECT * FROM admin_audit_logs ORDER BY created_at DESC LIMIT 200`
   );
   res.json(rows);
+});
+
+// Captured payment on an already-cancelled order: controlled full-refund workflow.
+router.get('/payment-exceptions', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, user_id, total, payment_method, payment_status,
+            razorpay_payment_id, payment_reconciliation_status,
+            razorpay_refund_id, refund_settled_at, created_at
+     FROM orders
+     WHERE payment_reconciliation_status IS NOT NULL
+     ORDER BY created_at DESC LIMIT 100`
+  );
+  res.json(rows);
+});
+
+router.post('/orders/:id/refund-exception', async (req, res) => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    return res.status(503).json({ message: 'Razorpay is not configured' });
+  }
+  const client = await pool.connect();
+  let order;
+  try {
+    await client.query('BEGIN');
+    const result = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [req.params.id]);
+    order = result.rows[0];
+    if (!order) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Order not found' }); }
+    if (order.status !== 'cancelled' || order.payment_status !== 'paid' ||
+        order.payment_reconciliation_status !== 'refund_required' || !order.razorpay_payment_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'This order is not awaiting a Razorpay refund' });
+    }
+    // Persist intent before calling Razorpay. A process crash after the API call
+    // must be reconciled in the Razorpay dashboard, never blindly retried.
+    await client.query(
+      `UPDATE orders SET payment_reconciliation_status = 'refund_initiating' WHERE id = $1`,
+      [order.id]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('Could not reserve payment exception refund:', e.message);
+    return res.status(500).json({ message: 'Could not prepare refund' });
+  } finally {
+    client.release();
+  }
+
+  try {
+    const rzp = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET
+    });
+    const refund = await rzp.payments.refund(order.razorpay_payment_id, {
+      amount: Math.round(Number(order.total) * 100),
+      speed: 'optimum',
+      notes: { order_id: String(order.id), purpose: 'cancelled_order_late_capture' }
+    });
+    const { rows } = await pool.query(
+      `UPDATE orders
+       SET payment_status = 'refunded', razorpay_refund_id = $1,
+           payment_reconciliation_status = 'refund_issued'
+       WHERE id = $2 AND payment_reconciliation_status = 'refund_initiating'
+       RETURNING id, payment_status, payment_reconciliation_status, razorpay_refund_id`,
+      [refund.id, order.id]
+    );
+    if (!rows.length) return res.status(409).json({ message: 'Refund was created but order state needs manual reconciliation', refund_id: refund.id });
+    logAdminAction(req, {
+      action: 'late_capture_refund_issued', entity: 'order', entityId: order.id,
+      newValue: { refund_id: refund.id, amount: Number(order.total) }
+    });
+    return res.json(rows[0]);
+  } catch (e) {
+    // Leave refund_initiating on an ambiguous provider/network outcome to prevent
+    // a duplicate refund. The admin must reconcile the payment in Razorpay.
+    console.error('Late capture refund requires reconciliation:', e.message);
+    return res.status(502).json({ message: 'Refund outcome is uncertain. Check Razorpay before taking another action; this request has not been automatically retried.' });
+  }
+});
+
+// Creator programme moderation — applications only; commission/payout controls are not enabled.
+router.get('/creators', async (req, res) => {
+  const status = String(req.query.status || '').trim();
+  const allowed = new Set(['pending', 'approved', 'rejected', 'paused']);
+  if (status && !allowed.has(status)) return res.status(400).json({ message: 'Invalid creator status' });
+  const values = [];
+  const where = status ? (values.push(status), 'WHERE ca.status = $1') : '';
+  const { rows } = await pool.query(
+    `SELECT ca.*, u.name AS user_name, u.email AS user_email
+     FROM creator_applications ca JOIN users u ON u.id = ca.user_id
+     ${where}
+     ORDER BY CASE WHEN ca.status = 'pending' THEN 0 ELSE 1 END, ca.created_at DESC
+     LIMIT 200`,
+    values
+  );
+  res.json(rows);
+});
+
+router.patch('/creators/:id', async (req, res) => {
+  const status = String(req.body?.status || '');
+  const note = typeof req.body?.admin_note === 'string' ? req.body.admin_note.trim().slice(0, 500) : null;
+  if (!['approved', 'rejected', 'paused'].includes(status)) {
+    return res.status(400).json({ message: 'Choose approved, rejected or paused' });
+  }
+  const before = await pool.query('SELECT * FROM creator_applications WHERE id = $1', [req.params.id]);
+  if (!before.rows.length) return res.status(404).json({ message: 'Creator application not found' });
+  const { rows } = await pool.query(
+    `UPDATE creator_applications
+     SET status = $1, admin_note = $2, reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
+     WHERE id = $4 RETURNING *`,
+    [status, note, req.user.id, req.params.id]
+  );
+  logAdminAction(req, {
+    action: 'creator_application_' + status,
+    entity: 'creator_application',
+    entityId: req.params.id,
+    oldValue: { status: before.rows[0].status },
+    newValue: { status, admin_note: note }
+  });
+  res.json(rows[0]);
 });
 
 export default router;

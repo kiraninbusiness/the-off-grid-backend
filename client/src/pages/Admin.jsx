@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { api, apiUpload } from "../api";
 import AdminExtras from "../components/AdminExtras";
+import AdminCreators from "../components/AdminCreators";
 
 const empty = {
   name: "",
@@ -967,6 +968,18 @@ export default function Admin({ user }) {
             Manage products, inventory and
             customer orders from one place.
           </p>
+
+          <button
+            type="button"
+            className="orange-btn"
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              document.getElementById("admin-app-management")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              window.dispatchEvent(new CustomEvent("offgrid-admin-open-app"));
+            }}
+          >
+            <Package size={16} /> MOBILE APP MANAGEMENT
+          </button>
         </div>
 
         <div className="admin-header-actions">
@@ -988,6 +1001,18 @@ export default function Admin({ user }) {
             </div>
 
           </div>
+
+          <button
+            type="button"
+            className="admin-refresh"
+            onClick={() => {
+              document.getElementById("admin-extras")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              window.dispatchEvent(new CustomEvent("offgrid-admin-open-app"));
+            }}
+          >
+            <Package size={16} />
+            MOBILE APP
+          </button>
 
           <button
             type="button"
@@ -2626,7 +2651,7 @@ export default function Admin({ user }) {
 
       </section>
 
-      <AdminExtras user={user} />
+      <AdminCreators />\n      <AdminExtras user={user} />
 
     </main>
   );

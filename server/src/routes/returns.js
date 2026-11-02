@@ -6,11 +6,11 @@ import { sendEmail, returnStatusEmail } from '../services/email.js';
 import { logStockMovement, notifyRestock } from './variants.js';
 import { createNotification } from '../services/notifications.js';
 import { logAdminAction } from '../services/auditLog.js';
+import { calculateRefundPointsReversal } from '../services/loyaltyRefunds.js';
 
 const router = Router();
 
 const RETURN_WINDOW_DAYS = 10;
-
 // Order items relevant to a return: the single referenced line item,
 // or — for older requests made before order_item_id was required —
 // every item on the order.
@@ -32,55 +32,90 @@ router.post('/', auth, async (req, res) => {
     reason = '',
     exchange_size = null,
     exchange_color = null
-  } = req.body;
+  } = req.body || {};
 
+  if (!Number.isSafeInteger(Number(order_id)) || Number(order_id) < 1) {
+    return res.status(400).json({ message: 'Invalid order' });
+  }
+  if (order_item_id != null && (!Number.isSafeInteger(Number(order_item_id)) || Number(order_item_id) < 1)) {
+    return res.status(400).json({ message: 'Invalid order item' });
+  }
   if (!['return', 'exchange'].includes(type)) {
     return res.status(400).json({ message: 'Invalid request type' });
   }
-  if (!reason.trim()) {
+  if (typeof reason !== 'string' || !reason.trim()) {
     return res.status(400).json({ message: 'Please tell us the reason for this request' });
   }
 
+  const client = await pool.connect();
   try {
-    const orderResult = await pool.query(
-      'SELECT * FROM orders WHERE id = $1 AND user_id = $2',
-      [order_id, req.user.id]
+    await client.query('BEGIN');
+    // Serialize return submissions for an order so two simultaneous requests
+    // cannot both pass the duplicate check for the same item.
+    const orderResult = await client.query(
+      'SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [Number(order_id), req.user.id]
     );
     const order = orderResult.rows[0];
 
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Order not found' });
+    }
     if (order.status !== 'delivered') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Only delivered orders are eligible for return or exchange' });
     }
 
-    if (order.delivered_at) {
-      const deadline = new Date(order.delivered_at).getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-      if (Date.now() > deadline) {
-        return res.status(400).json({ message: `The ${RETURN_WINDOW_DAYS}-day return window for this order has closed` });
+    if (!order.delivered_at) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Delivery date is unavailable. Please contact support to check eligibility.' });
+    }
+    const deadline = new Date(order.delivered_at).getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    if (!Number.isFinite(deadline) || Date.now() > deadline) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: `The ${RETURN_WINDOW_DAYS}-day return window for this order has closed` });
+    }
+
+    if (order_item_id != null) {
+      const ownedItem = await client.query(
+        'SELECT id FROM order_items WHERE id = $1 AND order_id = $2',
+        [Number(order_item_id), order.id]
+      );
+      if (!ownedItem.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'The selected item does not belong to this order' });
       }
     }
 
-    const existing = await pool.query(
-      `SELECT id FROM returns WHERE order_id = $1 AND user_id = $2
-       AND (order_item_id = $3 OR ($3::int IS NULL AND order_item_id IS NULL))
-       AND status NOT IN ('rejected')`,
-      [order_id, req.user.id, order_item_id]
+    const existing = await client.query(
+      `SELECT id FROM returns
+       WHERE order_id = $1 AND user_id = $2
+         AND (order_item_id = $3 OR ($3::int IS NULL AND order_item_id IS NULL))
+         AND status NOT IN ('rejected')
+       LIMIT 1`,
+      [order.id, req.user.id, order_item_id == null ? null : Number(order_item_id)]
     );
     if (existing.rows.length) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ message: 'A request already exists for this item' });
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `INSERT INTO returns (order_id, order_item_id, user_id, type, reason, exchange_size, exchange_color)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
-      [order_id, order_item_id, req.user.id, type, reason.trim().slice(0, 500), exchange_size, exchange_color]
+      [order.id, order_item_id == null ? null : Number(order_item_id), req.user.id, type, reason.trim().slice(0, 500), exchange_size, exchange_color]
     );
 
+    await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
     console.error('POST /returns failed:', e.message);
     res.status(500).json({ message: 'Could not submit request' });
+  } finally {
+    client.release();
   }
 });
 
@@ -296,29 +331,65 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { rows } = await client.query(
-      `SELECT r.*, o.razorpay_payment_id, o.payment_method, o.payment_status, o.total
-       FROM returns r JOIN orders o ON o.id = r.order_id
-       WHERE r.id = $1 FOR UPDATE`,
+    // Lock the parent order first so two different return requests for the
+    // same order cannot concurrently over-refund its captured payment.
+    const orderResult = await client.query(
+      'SELECT * FROM orders WHERE id = (SELECT order_id FROM returns WHERE id = $1) FOR UPDATE',
       [req.params.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Request not found' }); }
+
+    const { rows } = await client.query(
+      `SELECT * FROM returns WHERE id = $1 AND order_id = $2 FOR UPDATE`,
+      [req.params.id, order.id]
     );
     const ret = rows[0];
 
     if (!ret) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Request not found' }); }
-    if (ret.status === 'refunded') { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Already refunded' }); }
-    if (ret.payment_method !== 'online' || ret.payment_status !== 'paid') {
+    if (ret.status === 'refunded' || ret.razorpay_refund_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'A refund has already been issued for this request' });
+    }
+    if (!['approved', 'received'].includes(ret.status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Approve and receive the return before issuing its refund' });
+    }
+    if (order.payment_method !== 'online' || order.payment_status !== 'paid') {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'This order was not paid online through Razorpay' });
     }
-    if (!ret.razorpay_payment_id) {
+    if (!order.razorpay_payment_id) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'No Razorpay payment ID on file for this order — cannot issue an automatic refund' });
     }
 
-    const amount = req.body.refund_amount != null ? Number(req.body.refund_amount) : Number(ret.total);
-    if (!(amount > 0)) {
+    // Amounts in the admin API are whole rupees; Razorpay receives paise.
+    const amount = req.body.refund_amount != null ? Number(req.body.refund_amount) : Number(ret.refund_amount || 0);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'Refund amount must be greater than zero' });
+      return res.status(400).json({ message: 'Enter a positive whole-rupee refund amount' });
+    }
+
+    const priorRefunds = await client.query(
+      `SELECT COALESCE(SUM(refund_amount), 0)::bigint AS refunded
+       FROM returns WHERE order_id = $1 AND status = 'refunded'`,
+      [order.id]
+    );
+    const alreadyRefunded = Number(priorRefunds.rows[0].refunded || 0);
+    const remaining = Number(order.total) - alreadyRefunded;
+    if (amount > remaining) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: `Refund exceeds the remaining refundable balance of ₹${Math.max(0, remaining)}` });
+    }
+
+    const itemResult = ret.order_item_id
+      ? await client.query('SELECT COALESCE(SUM(price * quantity),0)::bigint AS value FROM order_items WHERE id = $1 AND order_id = $2', [ret.order_item_id, order.id])
+      : await client.query('SELECT COALESCE(SUM(price * quantity),0)::bigint AS value FROM order_items WHERE order_id = $1', [order.id]);
+    const itemValue = Number(itemResult.rows[0]?.value || 0);
+    if (!itemValue || amount > itemValue) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Refund cannot exceed the value of the returned item(s)' });
     }
 
     const rzp = new Razorpay({
@@ -326,10 +397,10 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
       key_secret: process.env.RAZORPAY_KEY_SECRET
     });
 
-    const refund = await rzp.payments.refund(ret.razorpay_payment_id, {
+    const refund = await rzp.payments.refund(order.razorpay_payment_id, {
       amount: Math.round(amount * 100),
       speed: 'optimum',
-      notes: { return_id: String(ret.id), order_id: String(ret.order_id) }
+      notes: { return_id: String(ret.id), order_id: String(order.id), purpose: 'the_off_grid_return' }
     });
 
     const updated = await client.query(
@@ -338,6 +409,46 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
        WHERE id = $3 RETURNING *`,
       [amount, refund.id, ret.id]
     );
+
+    const cumulativeRefunds = alreadyRefunded + amount;
+    if (cumulativeRefunds >= Number(order.total)) {
+      await client.query(`UPDATE orders SET payment_status = 'refunded' WHERE id = $1`, [order.id]);
+    }
+
+    // Reverse earned purchase/tier points in proportion to the cumulative
+    // refunded amount. A unique return_id makes the clawback idempotent.
+    // Referral rewards belong to the referrer and are intentionally not
+    // clawed back from the customer's account here.
+    const reversalExists = await client.query(
+      'SELECT id FROM loyalty_refund_reversals WHERE return_id = $1',
+      [ret.id]
+    );
+    if (!reversalExists.rows.length && Number(order.points_earned || 0) > 0 && Number(order.total) > 0) {
+      const priorReversals = await client.query(
+        'SELECT COALESCE(SUM(points_reversed),0)::int AS points FROM loyalty_refund_reversals WHERE order_id = $1',
+        [order.id]
+      );
+      const pointsToReverse = calculateRefundPointsReversal({
+        pointsEarned: order.points_earned,
+        orderTotal: order.total,
+        cumulativeRefund: cumulativeRefunds,
+        previouslyReversed: priorReversals.rows[0].points
+      });
+      await client.query(
+        `INSERT INTO loyalty_refund_reversals
+          (return_id, order_id, user_id, refund_amount, points_reversed)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [ret.id, order.id, ret.user_id, amount, pointsToReverse]
+      );
+      if (pointsToReverse > 0) {
+        await client.query('UPDATE users SET loyalty_points = loyalty_points - $1 WHERE id = $2', [pointsToReverse, ret.user_id]);
+        await client.query(
+          `INSERT INTO points_ledger (user_id, delta, reason, order_id)
+           VALUES ($1, $2, 'refund_reversal', $3)`,
+          [ret.user_id, -pointsToReverse, order.id]
+        );
+      }
+    }
 
     await client.query('COMMIT');
 

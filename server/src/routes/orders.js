@@ -39,11 +39,10 @@ export async function awardLoyaltyPoints(client, orderId) {
 
   const order = orderResult.rows[0];
   // Members on higher tiers earn bonus points. Tier is based on spend from earlier settled orders.
-  const spendRow = await client.query(
-    `SELECT COALESCE(SUM(total),0)::int AS spend FROM orders WHERE user_id = $1 AND points_awarded = TRUE AND id <> $2`,
-    [order.user_id, orderId]
-  );
-  const split = pointsForOrder(order.total, spendRow.rows[0].spend);
+  // Use the same delivered-order lifetime spend as the Club tier screen.
+  // This keeps tier multipliers consistent across the app and checkout.
+  const spendBefore = await deliveredSpend(client, order.user_id);
+  const split = pointsForOrder(order.total, spendBefore);
   const points = split.base + split.bonus;
 
   if (points <= 0) {
@@ -1160,42 +1159,68 @@ router.patch(
     try {
       await client.query('BEGIN');
 
+      const existingResult = await client.query(
+        'SELECT * FROM orders WHERE id = $1 FOR UPDATE',
+        [req.params.id]
+      );
+      const existingOrder = existingResult.rows[0];
+      if (!existingOrder) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      const allowedStatuses = new Set(['pending', 'processing', 'shipped', 'delivered', 'cancelled']);
+      const allowedPaymentStatuses = new Set(['pending', 'paid', 'failed', 'refunded']);
+      if (status != null && !allowedStatuses.has(status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Invalid order status' });
+      }
+      if (payment_status != null && !allowedPaymentStatuses.has(payment_status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Invalid payment status' });
+      }
+
+      if (status === 'cancelled' && existingOrder.status !== 'cancelled') {
+        // Do not let a status edit cancel a captured payment. A paid online
+        // order must go through the refund workflow; stock is not restored here.
+        if (existingOrder.payment_status === 'paid') {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ message: 'This order has been paid. Issue a refund through the refund workflow before cancelling it.' });
+        }
+        if (existingOrder.status !== 'pending') {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ message: 'Only pending unpaid orders can be cancelled from this screen.' });
+        }
+        await restoreOrderBenefits(client, existingOrder);
+      }
+
+      if (existingOrder.payment_status === 'paid' && payment_status != null && payment_status !== 'paid') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'A captured payment cannot be changed here. Use the refund workflow if money must be returned.' });
+      }
+      if (payment_status === 'paid' && existingOrder.payment_status !== 'paid') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Use payment verification/webhook processing to mark an order as paid.' });
+      }
+      if (payment_status === 'refunded' && existingOrder.payment_status !== 'refunded') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Use the refund workflow to mark an order as refunded.' });
+      }
+
       const { rows } = await client.query(
         `UPDATE orders
          SET
-           status =
-             COALESCE($1, status),
-
-           payment_status =
-             COALESCE(
-               $2,
-               payment_status
-             ),
-
-           delivered_at =
-             CASE WHEN $1 = 'delivered' AND delivered_at IS NULL THEN NOW() ELSE delivered_at END,
-
-           processing_at =
-             CASE WHEN $1 IN ('processing','shipped','delivered') AND processing_at IS NULL THEN NOW() ELSE processing_at END,
-
-           shipped_at =
-             CASE WHEN $1 = 'shipped' AND shipped_at IS NULL THEN NOW() ELSE shipped_at END,
-
+           status = COALESCE($1, status),
+           payment_status = COALESCE($2, payment_status),
+           delivered_at = CASE WHEN $1 = 'delivered' AND delivered_at IS NULL THEN NOW() ELSE delivered_at END,
+           processing_at = CASE WHEN $1 IN ('processing','shipped','delivered') AND processing_at IS NULL THEN NOW() ELSE processing_at END,
+           shipped_at = CASE WHEN $1 = 'shipped' AND shipped_at IS NULL THEN NOW() ELSE shipped_at END,
            courier = COALESCE($4, courier),
            awb = COALESCE($5, awb),
            tracking_url = COALESCE($6, tracking_url)
-
          WHERE id = $3
-
          RETURNING *`,
-        [
-          status,
-          payment_status,
-          req.params.id,
-          shipment.courier ?? null,
-          shipment.awb ?? null,
-          shipment.tracking_url ?? null
-        ]
+        [status, payment_status, req.params.id, shipment.courier ?? null, shipment.awb ?? null, shipment.tracking_url ?? null]
       );
 
       if (!rows.length) {
