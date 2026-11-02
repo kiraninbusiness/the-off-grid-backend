@@ -32,55 +32,90 @@ router.post('/', auth, async (req, res) => {
     reason = '',
     exchange_size = null,
     exchange_color = null
-  } = req.body;
+  } = req.body || {};
 
+  if (!Number.isSafeInteger(Number(order_id)) || Number(order_id) < 1) {
+    return res.status(400).json({ message: 'Invalid order' });
+  }
+  if (order_item_id != null && (!Number.isSafeInteger(Number(order_item_id)) || Number(order_item_id) < 1)) {
+    return res.status(400).json({ message: 'Invalid order item' });
+  }
   if (!['return', 'exchange'].includes(type)) {
     return res.status(400).json({ message: 'Invalid request type' });
   }
-  if (!reason.trim()) {
+  if (typeof reason !== 'string' || !reason.trim()) {
     return res.status(400).json({ message: 'Please tell us the reason for this request' });
   }
 
+  const client = await pool.connect();
   try {
-    const orderResult = await pool.query(
-      'SELECT * FROM orders WHERE id = $1 AND user_id = $2',
-      [order_id, req.user.id]
+    await client.query('BEGIN');
+    // Serialize return submissions for an order so two simultaneous requests
+    // cannot both pass the duplicate check for the same item.
+    const orderResult = await client.query(
+      'SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [Number(order_id), req.user.id]
     );
     const order = orderResult.rows[0];
 
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Order not found' });
+    }
     if (order.status !== 'delivered') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Only delivered orders are eligible for return or exchange' });
     }
 
-    if (order.delivered_at) {
-      const deadline = new Date(order.delivered_at).getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-      if (Date.now() > deadline) {
-        return res.status(400).json({ message: `The ${RETURN_WINDOW_DAYS}-day return window for this order has closed` });
+    if (!order.delivered_at) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Delivery date is unavailable. Please contact support to check eligibility.' });
+    }
+    const deadline = new Date(order.delivered_at).getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    if (!Number.isFinite(deadline) || Date.now() > deadline) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: `The ${RETURN_WINDOW_DAYS}-day return window for this order has closed` });
+    }
+
+    if (order_item_id != null) {
+      const ownedItem = await client.query(
+        'SELECT id FROM order_items WHERE id = $1 AND order_id = $2',
+        [Number(order_item_id), order.id]
+      );
+      if (!ownedItem.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'The selected item does not belong to this order' });
       }
     }
 
-    const existing = await pool.query(
-      `SELECT id FROM returns WHERE order_id = $1 AND user_id = $2
-       AND (order_item_id = $3 OR ($3::int IS NULL AND order_item_id IS NULL))
-       AND status NOT IN ('rejected')`,
-      [order_id, req.user.id, order_item_id]
+    const existing = await client.query(
+      `SELECT id FROM returns
+       WHERE order_id = $1 AND user_id = $2
+         AND (order_item_id = $3 OR ($3::int IS NULL AND order_item_id IS NULL))
+         AND status NOT IN ('rejected')
+       LIMIT 1`,
+      [order.id, req.user.id, order_item_id == null ? null : Number(order_item_id)]
     );
     if (existing.rows.length) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ message: 'A request already exists for this item' });
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `INSERT INTO returns (order_id, order_item_id, user_id, type, reason, exchange_size, exchange_color)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
-      [order_id, order_item_id, req.user.id, type, reason.trim().slice(0, 500), exchange_size, exchange_color]
+      [order.id, order_item_id == null ? null : Number(order_item_id), req.user.id, type, reason.trim().slice(0, 500), exchange_size, exchange_color]
     );
 
+    await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
     console.error('POST /returns failed:', e.message);
     res.status(500).json({ message: 'Could not submit request' });
+  } finally {
+    client.release();
   }
 });
 
