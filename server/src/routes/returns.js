@@ -415,6 +415,40 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
       await client.query(`UPDATE orders SET payment_status = 'refunded' WHERE id = $1`, [order.id]);
     }
 
+    // Reverse earned purchase/tier points in proportion to the cumulative
+    // refunded amount. A unique return_id makes the clawback idempotent.
+    // Referral rewards belong to the referrer and are intentionally not
+    // clawed back from the customer's account here.
+    const reversalExists = await client.query(
+      'SELECT id FROM loyalty_refund_reversals WHERE return_id = $1',
+      [ret.id]
+    );
+    if (!reversalExists.rows.length && Number(order.points_earned || 0) > 0 && Number(order.total) > 0) {
+      const priorReversals = await client.query(
+        'SELECT COALESCE(SUM(points_reversed),0)::int AS points FROM loyalty_refund_reversals WHERE order_id = $1',
+        [order.id]
+      );
+      const targetReversal = Math.min(
+        Number(order.points_earned),
+        Math.floor(Number(order.points_earned) * cumulativeRefunds / Number(order.total))
+      );
+      const pointsToReverse = Math.max(0, targetReversal - Number(priorReversals.rows[0].points || 0));
+      await client.query(
+        `INSERT INTO loyalty_refund_reversals
+          (return_id, order_id, user_id, refund_amount, points_reversed)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [ret.id, order.id, ret.user_id, amount, pointsToReverse]
+      );
+      if (pointsToReverse > 0) {
+        await client.query('UPDATE users SET loyalty_points = loyalty_points - $1 WHERE id = $2', [pointsToReverse, ret.user_id]);
+        await client.query(
+          `INSERT INTO points_ledger (user_id, delta, reason, order_id)
+           VALUES ($1, $2, 'refund_reversal', $3)`,
+          [ret.user_id, -pointsToReverse, order.id]
+        );
+      }
+    }
+
     await client.query('COMMIT');
 
     logAdminAction(req, {
