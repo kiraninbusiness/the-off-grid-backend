@@ -1,5 +1,7 @@
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, n);
 
+import { isTierKey } from './club.js';
+
 export const MAX_LOOK_PRODUCTS = 8;
 
 /** Returns { value } with a clean look, or { error }. */
@@ -24,6 +26,7 @@ export function normalizeLook(body) {
       product_ids: ids,
       sort_order: Number.isFinite(sort) ? Math.max(0, Math.min(999, sort)) : 0,
       active: b.active !== false,
+      min_tier: isTierKey(b.min_tier) ? b.min_tier : null,
     },
   };
 }

@@ -2250,6 +2250,15 @@ export default function Admin({ user }) {
                       </span>
                     </div>
 
+                    {o.gift_wrap && (
+                      <div>
+                        <span>
+                          <small>PREMIUM PACKAGING (GIFT BOX + CARD)</small>
+                          <strong>{o.gift_message ? `Card message: ${o.gift_message}` : "No card message"}</strong>
+                        </span>
+                      </div>
+                    )}
+
 
                     <div>
                       <IndianRupee

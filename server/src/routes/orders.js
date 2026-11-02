@@ -10,6 +10,8 @@ import { logStockMovement } from './variants.js';
 import { createNotification } from '../services/notifications.js';
 import { pointsForOrder, earlyAccessInfo } from '../services/club.js';
 import { deliveredSpend } from '../services/clubSpend.js';
+import { packagingFee, cleanGiftMessage } from '../services/premium.js';
+import { tierFor } from '../services/club.js';
 import { estimateDelivery } from '../services/deliveryEstimate.js';
 
 const router = Router();
@@ -144,7 +146,9 @@ router.post('/create', auth, async (req, res) => {
     payment_method = 'cod',
     redeem_points = 0,
     coupon_code = '',
-    gift_card_code = ''
+    gift_card_code = '',
+    gift_wrap = false,
+    gift_message = ''
   } = req.body;
 
   if (!Array.isArray(rawItems)) {
@@ -468,8 +472,13 @@ router.post('/create', auth, async (req, res) => {
 
     const discount = pointsToRedeem;
 
+    // Premium gift packaging: a flat fee, free for Black members. Charged on the server, never trusted from the app.
+    const wrapWanted = gift_wrap === true;
+    const wrapFee = wrapWanted ? packagingFee(true, tierFor(await deliveredSpend(client, req.user.id)).key) : 0;
+    const wrapMessage = wrapWanted ? cleanGiftMessage(gift_message) : '';
+
     const total =
-      subtotal + shippingCharge - couponDiscount - discount - giftCardDiscount - comboDiscount;
+      subtotal + shippingCharge + wrapFee - couponDiscount - discount - giftCardDiscount - comboDiscount;
 
     if (couponRow) {
       await client.query(
@@ -514,9 +523,12 @@ router.post('/create', auth, async (req, res) => {
           coupon_discount,
           gift_card_code,
           gift_card_discount,
-          combo_discount
+          combo_discount,
+          gift_wrap,
+          gift_message,
+          packaging_fee
         )
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
         RETURNING *`,
         [
           req.user.id,
@@ -535,7 +547,10 @@ router.post('/create', auth, async (req, res) => {
           couponDiscount,
           giftCard ? giftCard.code : null,
           giftCardDiscount,
-          comboDiscount
+          comboDiscount,
+          wrapWanted,
+          wrapMessage || null,
+          wrapFee
         ]
       )
     ).rows[0];

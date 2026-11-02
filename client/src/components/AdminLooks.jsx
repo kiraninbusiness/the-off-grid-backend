@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api, apiUpload } from "../api";
 
-const blank = { title: "", image: "", description: "", creator: "", sort_order: 0, product_ids: [] };
+const blank = { min_tier: "", title: "", image: "", description: "", creator: "", sort_order: 0, product_ids: [] };
 
 // Admin: curated outfits ("looks") shown in the app's Style tab.
 export default function AdminLooks() {
@@ -62,6 +62,12 @@ export default function AdminLooks() {
         <input placeholder="Look name (e.g. Weekend Street)" value={form.title} onChange={set("title")} />
         <input placeholder="Short description (optional)" value={form.description} onChange={set("description")} />
         <input placeholder="Creator or stylist (optional)" value={form.creator} onChange={set("creator")} />
+        <select value={form.min_tier} onChange={set("min_tier")}>
+          <option value="">Open to everyone</option>
+          <option value="silver">Silver members and above</option>
+          <option value="gold">Gold members and above</option>
+          <option value="black">Black members only</option>
+        </select>
         <input type="number" placeholder="Order (0 = first)" value={form.sort_order} onChange={set("sort_order")} />
         <input placeholder="Search products to add" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid #ddd", padding: 8 }}>
@@ -81,7 +87,7 @@ export default function AdminLooks() {
           <img src={l.image} alt="" style={{ width: 54, height: 70, objectFit: "cover" }} />
           <span style={{ flex: 1 }}>
             <strong>{l.title}</strong><br />
-            <small>{l.products.length} products{l.creator ? ` · by ${l.creator}` : ""} · {l.active ? "live" : "hidden"}</small>
+            <small>{l.products.length} products{l.creator ? ` · by ${l.creator}` : ""} · {l.active ? "live" : "hidden"}{l.min_tier ? ` · ${l.min_tier} members` : ""}</small>
           </span>
           <button type="button" onClick={() => toggleActive(l)}>{l.active ? "Hide" : "Show"}</button>
           <button type="button" onClick={() => remove(l)}>Delete</button>

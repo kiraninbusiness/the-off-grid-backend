@@ -423,6 +423,9 @@ export async function initDb(){
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_wears_size TEXT`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS fabric_gsm INTEGER`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS fabric_composition TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_wrap BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_message TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS packaging_fee INTEGER NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS min_tier TEXT`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS early_access_until TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS early_access_tier TEXT`);

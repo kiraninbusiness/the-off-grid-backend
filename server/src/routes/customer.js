@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth } from '../middleware/auth.js';
 import { similarity, buildProfile, profileScore, rank } from '../services/recommender.js';
+import { giftIdeas } from '../services/premium.js';
 import { estimateDelivery } from '../services/deliveryEstimate.js';
 import { tierProgress, TIERS, birthdayRewardDue, cleanBirthday, BIRTHDAY_POINTS } from '../services/club.js';
 
@@ -99,6 +100,18 @@ router.get('/recommendations', async (req,res)=>{
     const owned=new Set(bought.rows.map((x)=>Number(x.id)));
     res.json(rank(candidates,(c)=>profileScore(profile,c),{n:limit,exclude:owned}));
   } catch(e){console.error('RECOMMENDATIONS FAILED:',e.message);res.status(500).json({message:'Could not load recommendations'});}
+});
+
+// Gift ideas: GET /api/customer/gift-ideas?budget=2000&for=men|women|any
+router.get('/gift-ideas', async (req,res)=>{
+  const budget=Number(req.query.budget);
+  if(!Number.isFinite(budget)||budget<100||budget>100000) return res.status(400).json({message:'Enter a budget between ₹100 and ₹1,00,000'});
+  try {
+    const prods=await pool.query(`SELECT * FROM products WHERE stock>0 AND price<=$1`,[budget]);
+    const sold=await pool.query(`SELECT product_id, SUM(quantity)::int AS n FROM order_items GROUP BY product_id`);
+    const map=Object.fromEntries(sold.rows.map((r)=>[r.product_id,r.n]));
+    res.json(giftIdeas(prods.rows,map,{budget,forGender:String(req.query.for||'any')}));
+  } catch(e){ console.error(e); res.status(500).json({message:'Could not load gift ideas'}); }
 });
 
 router.post('/stock-alerts', async(req,res)=>{
