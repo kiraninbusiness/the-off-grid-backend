@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { RefreshCw, Trash2, EyeOff, Eye, Users, MessageSquareWarning, PackageSearch, Undo2, Gift, Layers, Mail, Boxes, Plus, TrendingUp } from "lucide-react";
+import { RefreshCw, Trash2, EyeOff, Eye, Users, MessageSquareWarning, PackageSearch, Undo2, Gift, Layers, Mail, Boxes, Plus, TrendingUp, IndianRupee } from "lucide-react";
 import { api } from "../api";
 import AppHealth from "./AppHealth";
 import AdminBanners from "./AdminBanners";
