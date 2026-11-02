@@ -968,6 +968,18 @@ export default function Admin({ user }) {
             Manage products, inventory and
             customer orders from one place.
           </p>
+
+          <button
+            type="button"
+            className="orange-btn"
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              document.getElementById("admin-app-management")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              window.dispatchEvent(new CustomEvent("offgrid-admin-open-app"));
+            }}
+          >
+            <Package size={16} /> MOBILE APP MANAGEMENT
+          </button>
         </div>
 
         <div className="admin-header-actions">
