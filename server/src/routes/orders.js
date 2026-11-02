@@ -1194,6 +1194,10 @@ router.patch(
         await restoreOrderBenefits(client, existingOrder);
       }
 
+      if (existingOrder.payment_status === 'paid' && payment_status != null && payment_status !== 'paid') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'A captured payment cannot be changed here. Use the refund workflow if money must be returned.' });
+      }
       if (payment_status === 'paid' && existingOrder.payment_status !== 'paid') {
         await client.query('ROLLBACK');
         return res.status(400).json({ message: 'Use payment verification/webhook processing to mark an order as paid.' });
