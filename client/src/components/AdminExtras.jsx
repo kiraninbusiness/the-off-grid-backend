@@ -755,7 +755,21 @@ export default function AdminExtras({ user }) {
       {tab === "looks" && <AdminLooks />}
       {tab === "community" && <AdminCommunity />}
 
-      {tab === "app" && <AppHealth />}
+      {tab === "app" && (
+        <div className="admin-product-list">
+          <div className="admin-form-panel">
+            <p className="eyebrow">THE OFF GRID · MOBILE APP</p>
+            <h2>Mobile App Control Center</h2>
+            <p className="muted">Monitor app usage and reported errors, and manage shared app merchandising content below. Product, price and inventory edits continue to sync through the shared store API.</p>
+            <div className="admin-product-actions">
+              <button type="button" onClick={() => setTab("banners")}>Manage App Banners</button>
+              <button type="button" onClick={() => setTab("looks")}>Manage Shop the Look</button>
+              <button type="button" onClick={() => setTab("community")}>Manage Community</button>
+            </div>
+          </div>
+          <AppHealth />
+        </div>
+      )}
 
       {tab === "analytics" && analytics && (
         <div className="admin-analytics">
