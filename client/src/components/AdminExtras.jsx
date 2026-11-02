@@ -163,6 +163,12 @@ export default function AdminExtras({ user }) {
 
   useEffect(() => { load(); }, [user]);
 
+  useEffect(() => {
+    const openAppTab = () => setTab("app");
+    window.addEventListener("offgrid-admin-open-app", openAppTab);
+    return () => window.removeEventListener("offgrid-admin-open-app", openAppTab);
+  }, []);
+
   const loadPaymentExceptions = async () => {
     try {
       const rows = await api("/admin/payment-exceptions");
@@ -359,11 +365,11 @@ export default function AdminExtras({ user }) {
   if (user?.role !== "admin") return null;
 
   return (
-    <section className="admin-content admin-extras">
+    <section id="admin-app-management" className="admin-content admin-extras">
       <div className="admin-panel-header">
         <div>
-          <p className="eyebrow">STORE MANAGEMENT</p>
-          <h2>Customers, Reviews, Returns & Stock Alerts</h2>
+          <p className="eyebrow">STORE & APP MANAGEMENT</p>
+          <h2>Customers, Reviews, Returns & Mobile App</h2>
         </div>
         <button type="button" className="admin-refresh" onClick={() => { load(); if (tab === "payments") loadPaymentExceptions(); }}>
           <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh
@@ -407,7 +413,7 @@ export default function AdminExtras({ user }) {
           <TrendingUp size={15} /> Analytics
         </button>
         <button type="button" className={tab === "app" ? "active" : ""} onClick={() => setTab("app")}>
-          APP
+          MOBILE APP
         </button>
         <button type="button" className={tab === "banners" ? "active" : ""} onClick={() => setTab("banners")}>
           BANNERS
