@@ -107,6 +107,8 @@ function StockLedger({ productId }) {
 export default function AdminExtras({ user }) {
   const [tab, setTab] = useState("returns");
   const [returns, setReturns] = useState([]);
+  const [paymentExceptions, setPaymentExceptions] = useState([]);
+  const [exceptionBusyId, setExceptionBusyId] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [stockAlerts, setStockAlerts] = useState([]);
@@ -160,6 +162,33 @@ export default function AdminExtras({ user }) {
   };
 
   useEffect(() => { load(); }, [user]);
+
+  const loadPaymentExceptions = async () => {
+    try {
+      const rows = await api("/admin/payment-exceptions");
+      setPaymentExceptions(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      setErr(e.message || "Could not load payment exceptions.");
+    }
+  };
+
+  const issueExceptionRefund = async (order) => {
+    const confirmed = window.confirm(
+      `Issue a full Razorpay refund of ₹${Number(order.total || 0).toLocaleString("en-IN")} for cancelled order #${order.id}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+    setExceptionBusyId(order.id);
+    setErr("");
+    try {
+      await api(`/admin/orders/${order.id}/refund-exception`, { method: "POST", body: JSON.stringify({}) });
+      await loadPaymentExceptions();
+    } catch (e) {
+      setErr(e.message || "Could not issue the refund. Check Razorpay before retrying.");
+      await loadPaymentExceptions();
+    } finally {
+      setExceptionBusyId(null);
+    }
+  };
 
   const updateReturn = async (id, patch) => {
     try {
@@ -344,6 +373,9 @@ export default function AdminExtras({ user }) {
       {err && <div className="admin-error">{err}</div>}
 
       <div className="admin-extras-tabs">
+        <button type="button" className={tab === "payments" ? "active" : ""} onClick={() => { setTab("payments"); loadPaymentExceptions(); }}>
+          <IndianRupee size={15} /> Payment Exceptions <b>{paymentExceptions.filter((p) => p.payment_reconciliation_status === "refund_required").length}</b>
+        </button>
         <button type="button" className={tab === "returns" ? "active" : ""} onClick={() => setTab("returns")}>
           <Undo2 size={15} /> Returns <b>{returns.filter((r) => r.status === "requested").length}</b>
         </button>
@@ -387,6 +419,34 @@ export default function AdminExtras({ user }) {
           COMMUNITY
         </button>
       </div>
+
+      {tab === "payments" && (
+        <div className="admin-product-list">
+          {!paymentExceptions.length && <div className="admin-empty"><p>No payment reconciliation exceptions recorded.</p></div>}
+          {paymentExceptions.map((p) => (
+            <article key={p.id} className="admin-product-card">
+              <div className="admin-product-details">
+                <div className="admin-product-title">
+                  <strong>ORDER #{p.id} · {money(p.total)}</strong>
+                  <span className={p.payment_reconciliation_status === "refund_required" ? "order-status return-status-requested" : "order-status"}>{String(p.payment_reconciliation_status || "").replace(/_/g, " ").toUpperCase()}</span>
+                </div>
+                <p className="muted">Payment: {p.payment_status} · Method: {p.payment_method} · Payment ID: {p.razorpay_payment_id || "—"}</p>
+                {p.razorpay_refund_id && <p className="muted">Razorpay refund: {p.razorpay_refund_id}</p>}
+                {p.refund_settled_at && <p className="muted">Settled: {new Date(p.refund_settled_at).toLocaleString("en-IN")}</p>}
+                {p.payment_reconciliation_status === "refund_required" ? (
+                  <div className="admin-product-actions">
+                    <button type="button" className="orange-btn" disabled={exceptionBusyId === p.id} onClick={() => issueExceptionRefund(p)}>
+                      {exceptionBusyId === p.id ? "ISSUING REFUND…" : "ISSUE FULL REFUND"}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="muted">No automatic retry is available for this state. Verify the transaction in Razorpay before making any manual change.</p>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
 
       {tab === "returns" && (
         <div className="admin-product-list">
