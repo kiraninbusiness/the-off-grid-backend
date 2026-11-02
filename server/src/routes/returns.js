@@ -331,29 +331,65 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { rows } = await client.query(
-      `SELECT r.*, o.razorpay_payment_id, o.payment_method, o.payment_status, o.total
-       FROM returns r JOIN orders o ON o.id = r.order_id
-       WHERE r.id = $1 FOR UPDATE`,
+    // Lock the parent order first so two different return requests for the
+    // same order cannot concurrently over-refund its captured payment.
+    const orderResult = await client.query(
+      'SELECT * FROM orders WHERE id = (SELECT order_id FROM returns WHERE id = $1) FOR UPDATE',
       [req.params.id]
+    );
+    const order = orderResult.rows[0];
+    if (!order) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Request not found' }); }
+
+    const { rows } = await client.query(
+      `SELECT * FROM returns WHERE id = $1 AND order_id = $2 FOR UPDATE`,
+      [req.params.id, order.id]
     );
     const ret = rows[0];
 
     if (!ret) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Request not found' }); }
-    if (ret.status === 'refunded') { await client.query('ROLLBACK'); return res.status(409).json({ message: 'Already refunded' }); }
-    if (ret.payment_method !== 'online' || ret.payment_status !== 'paid') {
+    if (ret.status === 'refunded' || ret.razorpay_refund_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'A refund has already been issued for this request' });
+    }
+    if (!['approved', 'received'].includes(ret.status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Approve and receive the return before issuing its refund' });
+    }
+    if (order.payment_method !== 'online' || order.payment_status !== 'paid') {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'This order was not paid online through Razorpay' });
     }
-    if (!ret.razorpay_payment_id) {
+    if (!order.razorpay_payment_id) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'No Razorpay payment ID on file for this order — cannot issue an automatic refund' });
     }
 
-    const amount = req.body.refund_amount != null ? Number(req.body.refund_amount) : Number(ret.total);
-    if (!(amount > 0)) {
+    // Amounts in the admin API are whole rupees; Razorpay receives paise.
+    const amount = req.body.refund_amount != null ? Number(req.body.refund_amount) : Number(ret.refund_amount || 0);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'Refund amount must be greater than zero' });
+      return res.status(400).json({ message: 'Enter a positive whole-rupee refund amount' });
+    }
+
+    const priorRefunds = await client.query(
+      `SELECT COALESCE(SUM(refund_amount), 0)::bigint AS refunded
+       FROM returns WHERE order_id = $1 AND status = 'refunded'`,
+      [order.id]
+    );
+    const alreadyRefunded = Number(priorRefunds.rows[0].refunded || 0);
+    const remaining = Number(order.total) - alreadyRefunded;
+    if (amount > remaining) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: `Refund exceeds the remaining refundable balance of ₹${Math.max(0, remaining)}` });
+    }
+
+    const itemResult = ret.order_item_id
+      ? await client.query('SELECT COALESCE(SUM(price * quantity),0)::bigint AS value FROM order_items WHERE id = $1 AND order_id = $2', [ret.order_item_id, order.id])
+      : await client.query('SELECT COALESCE(SUM(price * quantity),0)::bigint AS value FROM order_items WHERE order_id = $1', [order.id]);
+    const itemValue = Number(itemResult.rows[0]?.value || 0);
+    if (!itemValue || amount > itemValue) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Refund cannot exceed the value of the returned item(s)' });
     }
 
     const rzp = new Razorpay({
@@ -361,10 +397,10 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
       key_secret: process.env.RAZORPAY_KEY_SECRET
     });
 
-    const refund = await rzp.payments.refund(ret.razorpay_payment_id, {
+    const refund = await rzp.payments.refund(order.razorpay_payment_id, {
       amount: Math.round(amount * 100),
       speed: 'optimum',
-      notes: { return_id: String(ret.id), order_id: String(ret.order_id) }
+      notes: { return_id: String(ret.id), order_id: String(order.id), purpose: 'the_off_grid_return' }
     });
 
     const updated = await client.query(
@@ -373,6 +409,11 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
        WHERE id = $3 RETURNING *`,
       [amount, refund.id, ret.id]
     );
+
+    const cumulativeRefunds = alreadyRefunded + amount;
+    if (cumulativeRefunds >= Number(order.total)) {
+      await client.query(`UPDATE orders SET payment_status = 'refunded' WHERE id = $1`, [order.id]);
+    }
 
     await client.query('COMMIT');
 
