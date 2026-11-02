@@ -222,6 +222,14 @@ async function reconcile(event) {
       `UPDATE returns SET refund_settled_at = NOW() WHERE razorpay_refund_id = $1`,
       [refund.id]
     );
+    await pool.query(
+      `UPDATE orders
+       SET refund_settled_at = NOW(),
+           payment_reconciliation_status = 'refund_settled'
+       WHERE razorpay_refund_id = $1
+         AND payment_reconciliation_status = 'refund_issued'`,
+      [refund.id]
+    );
   }
 }
 
