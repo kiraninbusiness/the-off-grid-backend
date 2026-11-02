@@ -49,6 +49,7 @@ router.post('/', (req, res) => {
       if (!query) return res.status(422).json({ message: 'No clothing or product was detected in this image.' });
 
       const terms = [...new Set(query.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2))].slice(0, 8);
+      if (!terms.length) return res.status(422).json({ message: 'Could not identify useful clothing details. Try a clearer product photo.' });
       const clauses = [];
       const values = [];
       for (const term of terms) {
