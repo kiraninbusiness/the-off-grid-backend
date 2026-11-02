@@ -993,6 +993,18 @@ export default function Admin({ user }) {
           <button
             type="button"
             className="admin-refresh"
+            onClick={() => {
+              document.getElementById("admin-extras")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              window.dispatchEvent(new CustomEvent("offgrid-admin-open-app"));
+            }}
+          >
+            <Package size={16} />
+            MOBILE APP
+          </button>
+
+          <button
+            type="button"
+            className="admin-refresh"
             onClick={load}
             disabled={loading}
           >
