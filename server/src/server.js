@@ -27,6 +27,7 @@ import webhooks from './routes/webhooks.js';
 import contact from './routes/contact.js';
 import notifications from './routes/notifications.js';
 import customer from './routes/customer.js';
+import creators from './routes/creators.js';
 import clientErrors from './routes/clientErrors.js';
 import analyticsRoutes from './routes/analytics.js';
 import bannersRoutes from './routes/banners.js';
@@ -122,6 +123,7 @@ app.use('/api/analytics',analyticsRoutes);
 app.use('/api/banners',bannersRoutes);
 app.use('/api/notifications',notifications);
 app.use('/api/customer',customer);
+app.use('/api/creators',creators);
 
 /*
   STANDARDIZED ERROR HANDLING
