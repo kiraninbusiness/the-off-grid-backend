@@ -3,7 +3,6 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { fileTypeFromBuffer } from 'file-type';
 import { pool } from '../db.js';
-import { auth } from '../middleware/auth.js';
 
 const router = Router();
 const receive = multer({ storage: multer.memoryStorage(), limits: { fileSize: 6 * 1024 * 1024 } });
@@ -12,7 +11,7 @@ function extractModelText(data) {
   return (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').join('\n').trim();
 }
 
-router.post('/', auth, (req, res) => {
+router.post('/', (req, res) => {
   receive.single('file')(req, res, async (uploadError) => {
     if (uploadError) return res.status(400).json({ message: uploadError.message || 'Image upload failed' });
     if (!req.file) return res.status(400).json({ message: 'Choose a product or outfit image first' });
