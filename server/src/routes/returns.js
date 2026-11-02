@@ -10,6 +10,17 @@ import { logAdminAction } from '../services/auditLog.js';
 const router = Router();
 
 const RETURN_WINDOW_DAYS = 10;
+// Pure calculation used by return-refund loyalty clawbacks.
+export function calculateRefundPointsReversal({ pointsEarned, orderTotal, cumulativeRefund, previouslyReversed }) {
+  const earned = Math.max(0, Math.floor(Number(pointsEarned) || 0));
+  const total = Number(orderTotal);
+  const refunded = Math.max(0, Number(cumulativeRefund) || 0);
+  const prior = Math.max(0, Math.floor(Number(previouslyReversed) || 0));
+  if (!Number.isFinite(total) || total <= 0 || earned === 0) return 0;
+  const target = Math.min(earned, Math.floor(earned * Math.min(refunded, total) / total));
+  return Math.max(0, target - Math.min(prior, earned));
+}
+
 
 // Order items relevant to a return: the single referenced line item,
 // or — for older requests made before order_item_id was required —
@@ -428,11 +439,12 @@ router.post('/:id/refund', auth, admin, async (req, res) => {
         'SELECT COALESCE(SUM(points_reversed),0)::int AS points FROM loyalty_refund_reversals WHERE order_id = $1',
         [order.id]
       );
-      const targetReversal = Math.min(
-        Number(order.points_earned),
-        Math.floor(Number(order.points_earned) * cumulativeRefunds / Number(order.total))
-      );
-      const pointsToReverse = Math.max(0, targetReversal - Number(priorReversals.rows[0].points || 0));
+      const pointsToReverse = calculateRefundPointsReversal({
+        pointsEarned: order.points_earned,
+        orderTotal: order.total,
+        cumulativeRefund: cumulativeRefunds,
+        previouslyReversed: priorReversals.rows[0].points
+      });
       await client.query(
         `INSERT INTO loyalty_refund_reversals
           (return_id, order_id, user_id, refund_amount, points_reversed)
