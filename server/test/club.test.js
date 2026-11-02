@@ -47,3 +47,25 @@ test('birthdays must be real dates for a plausible age', () => {
   assert.equal(cleanBirthday('1800-01-01', now), null);
   assert.equal(cleanBirthday('nope', now), null);
 });
+
+import { meetsTier, earlyAccessInfo, isTierKey } from '../src/services/club.js';
+
+test('tier gates for coupons', () => {
+  assert.equal(meetsTier(0, null), true);
+  assert.equal(meetsTier(0, 'silver'), false);
+  assert.equal(meetsTier(5000, 'silver'), true);
+  assert.equal(meetsTier(20000, 'silver'), true);
+  assert.equal(meetsTier(20000, 'black'), false);
+  assert.equal(isTierKey('gold'), true);
+  assert.equal(isTierKey('platinum'), false);
+});
+
+test('early access locks the item only until the window ends', () => {
+  const now = new Date(Date.UTC(2026, 10, 5));
+  const p = { early_access_until: '2026-11-10T00:00:00Z', early_access_tier: 'gold' };
+  assert.equal(earlyAccessInfo(p, 0, now).locked, true);
+  assert.equal(earlyAccessInfo(p, 15000, now).locked, false);
+  assert.equal(earlyAccessInfo(p, 0, new Date(Date.UTC(2026, 10, 11))).active, false);
+  assert.equal(earlyAccessInfo({}, 0, now).active, false);
+  assert.equal(earlyAccessInfo({ early_access_until: '2026-11-10T00:00:00Z' }, 5000, now).tier, 'gold');
+});

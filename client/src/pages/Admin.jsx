@@ -233,7 +233,8 @@ export default function Admin({ user }) {
     max_discount: "",
     usage_limit: "",
     expires_at: "",
-    is_public: false
+    is_public: false,
+    min_tier: ""
   };
 
   const [couponForm, setCouponForm] =
@@ -544,7 +545,8 @@ export default function Admin({ user }) {
               ? null
               : Number(couponForm.usage_limit),
           expires_at: couponForm.expires_at || null,
-          is_public: !!couponForm.is_public
+          is_public: !!couponForm.is_public,
+          min_tier: couponForm.min_tier || null
         })
       });
 
@@ -576,6 +578,39 @@ export default function Admin({ user }) {
       setCouponErr(
         e?.message || "Unable to update coupon."
       );
+    }
+  }
+
+  async function setCouponTier(coupon) {
+    const answer = window.prompt("Who can use this coupon? Type silver, gold or black (members at that level and above). Leave empty for everyone.", coupon.min_tier || "");
+    if (answer === null) return;
+    const tier = answer.trim().toLowerCase();
+    if (tier && !["silver", "gold", "black"].includes(tier)) { setCouponErr("Tier must be silver, gold or black."); return; }
+    try {
+      await api(`/coupons/${coupon.id}`, { method: "PATCH", body: JSON.stringify({ min_tier: tier || null }) });
+      await load();
+    } catch (e) {
+      setCouponErr(e?.message || "Unable to update coupon.");
+    }
+  }
+
+  async function setEarlyAccess(product) {
+    const tierAnswer = window.prompt("Early access for which members? Type silver, gold or black (that level and above). Leave empty to remove early access.", product.early_access_tier || "gold");
+    if (tierAnswer === null) return;
+    const tier = tierAnswer.trim().toLowerCase();
+    try {
+      if (!tier) {
+        await api(`/products/${product.id}`, { method: "PATCH", body: JSON.stringify({ early_access_until: null, early_access_tier: null }) });
+      } else {
+        if (!["silver", "gold", "black"].includes(tier)) { window.alert("Tier must be silver, gold or black."); return; }
+        const days = Number(window.prompt("How many days before it opens to everyone?", "2"));
+        if (!Number.isFinite(days) || days <= 0 || days > 60) { window.alert("Enter a number of days between 1 and 60."); return; }
+        const until = new Date(Date.now() + days * 86400000).toISOString();
+        await api(`/products/${product.id}`, { method: "PATCH", body: JSON.stringify({ early_access_until: until, early_access_tier: tier }) });
+      }
+      await load();
+    } catch (e) {
+      window.alert(e?.message || "Could not update early access.");
     }
   }
 
@@ -1878,6 +1913,10 @@ export default function Admin({ user }) {
                             Edit
                           </button>
 
+                          <button type="button" onClick={() => setEarlyAccess(p)}>
+                            {p.early_access ? `Early access: ${p.early_access_tier}` : "Early access…"}
+                          </button>
+
 
                           <button
                             type="button"
@@ -2419,6 +2458,19 @@ export default function Admin({ user }) {
                 SHOW TO CUSTOMERS IN THE APP
               </label>
 
+              <label style={{ display: "grid", gap: 4 }}>
+                MEMBERS ONLY (OPTIONAL)
+                <select
+                  value={couponForm.min_tier || ""}
+                  onChange={(e) => setCouponForm((c) => ({ ...c, min_tier: e.target.value }))}
+                >
+                  <option value="">Everyone</option>
+                  <option value="silver">Silver and above</option>
+                  <option value="gold">Gold and above</option>
+                  <option value="black">Black only</option>
+                </select>
+              </label>
+
             </div>
 
             {couponErr && (
@@ -2507,6 +2559,10 @@ export default function Admin({ user }) {
                     onClick={() => toggleCouponVisibility(c)}
                   >
                     {c.is_public ? "Hide from app" : "Show in app"}
+                  </button>
+
+                  <button type="button" onClick={() => setCouponTier(c)}>
+                    {c.min_tier ? `Members: ${c.min_tier}` : "Members only…"}
                   </button>
 
                   <button

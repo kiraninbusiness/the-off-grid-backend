@@ -8,7 +8,8 @@ import { checkCoupon } from './coupons.js';
 import { sendEmail, orderConfirmationEmail, orderStatusEmail } from '../services/email.js';
 import { logStockMovement } from './variants.js';
 import { createNotification } from '../services/notifications.js';
-import { pointsForOrder } from '../services/club.js';
+import { pointsForOrder, earlyAccessInfo } from '../services/club.js';
+import { deliveredSpend } from '../services/clubSpend.js';
 
 const router = Router();
 
@@ -235,6 +236,17 @@ router.post('/create', auth, async (req, res) => {
     const byId = Object.fromEntries(
       rows.map((p) => [p.id, p])
     );
+
+    // Early-access drops can only be bought by members of the right tier until the window ends.
+    if (rows.some((p) => p.early_access_until)) {
+      const memberSpend = await deliveredSpend(client, req.user.id);
+      for (const p of rows) {
+        const info = earlyAccessInfo(p, memberSpend);
+        if (info.locked) {
+          throw new Error(`"${p.name}" is in early access for ${info.tier.toUpperCase()} members. It opens to everyone soon.`);
+        }
+      }
+    }
 
     /*
       SKU-LEVEL VARIANT VALIDATION

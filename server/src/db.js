@@ -419,6 +419,9 @@ export async function initDb(){
     )
   `);
   await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS max_uses_per_user INTEGER NOT NULL DEFAULT 1`);
+  await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS min_tier TEXT`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS early_access_until TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS early_access_tier TEXT`);
   await pool.query(`CREATE TABLE IF NOT EXISTS points_ledger(
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

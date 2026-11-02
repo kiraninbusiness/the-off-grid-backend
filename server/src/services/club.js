@@ -65,3 +65,21 @@ export function cleanBirthday(value, now = new Date()) {
   if (age < 13 || age > 110) return null;
   return m[0];
 }
+
+export function isTierKey(value) {
+  return TIERS.some((t) => t.key === value);
+}
+
+/** True when a member with this spend may use something reserved for minTier and above. */
+export function meetsTier(spend, minTier) {
+  if (!minTier) return true;
+  return tierRank(tierFor(spend).key) >= tierRank(minTier);
+}
+
+/** Early access: before the date everyone below the tier sees the item locked. */
+export function earlyAccessInfo(product, spend, now = new Date()) {
+  const until = product?.early_access_until ? new Date(product.early_access_until) : null;
+  if (!until || Number.isNaN(until.getTime()) || until <= now) return { active: false, locked: false };
+  const tier = isTierKey(product.early_access_tier) ? product.early_access_tier : 'gold';
+  return { active: true, locked: !meetsTier(spend, tier), tier, until: until.toISOString() };
+}

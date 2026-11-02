@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { auth, admin } from '../middleware/auth.js';
 import { describeOffer, isOfferVisible } from '../services/couponOffers.js';
+import { meetsTier, isTierKey, TIERS, tierRank } from '../services/club.js';
+import { deliveredSpend, optionalUserId } from '../services/clubSpend.js';
 
 const router = Router();
 
@@ -28,6 +30,13 @@ async function checkCoupon(queryable, rawCode, subtotal, userId = null) {
   }
   if (coupon.usage_limit != null && coupon.used_count >= coupon.usage_limit) {
     return { ok: false, message: 'This coupon has reached its usage limit' };
+  }
+  if (coupon.min_tier) {
+    const label = (TIERS[tierRank(coupon.min_tier)] || TIERS[0]).name;
+    if (!userId) return { ok: false, message: `Sign in to use this ${label} member coupon` };
+    if (!meetsTier(await deliveredSpend(queryable, userId), coupon.min_tier)) {
+      return { ok: false, message: `This coupon is for ${label} members and above` };
+    }
   }
   if (userId) {
     const perUser = await queryable.query(
@@ -65,7 +74,7 @@ async function checkCoupon(queryable, rawCode, subtotal, userId = null) {
 */
 router.post('/validate', async (req, res) => {
   const { code, subtotal = 0 } = req.body;
-  const result = await checkCoupon(pool, code, Number(subtotal) || 0);
+  const result = await checkCoupon(pool, code, Number(subtotal) || 0, optionalUserId(req));
   if (!result.ok) return res.status(400).json({ message: result.message });
   res.json({
     code: result.coupon.code,
@@ -87,6 +96,7 @@ router.get('/public', async (req, res) => {
       rows.filter((c) => isOfferVisible(c)).map((c) => ({
         code: c.code,
         description: describeOffer(c),
+        min_tier: c.min_tier || null,
         min_order: Number(c.min_order) || 0
       }))
     );
@@ -118,8 +128,10 @@ router.post('/', auth, admin, async (req, res) => {
     max_discount = null,
     usage_limit = null,
     expires_at = null,
-    is_public = false
+    is_public = false,
+    min_tier = null
   } = req.body;
+  if (min_tier && !isTierKey(min_tier)) return res.status(400).json({ message: 'Unknown member tier' });
 
   if (!code || !value) {
     return res.status(400).json({ message: 'Code and value are required' });
@@ -130,8 +142,8 @@ router.post('/', auth, admin, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO coupons(code, type, value, min_order, max_discount, usage_limit, expires_at, is_public)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO coupons(code, type, value, min_order, max_discount, usage_limit, expires_at, is_public, min_tier)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [
         String(code).trim().toUpperCase(),
         type,
@@ -140,7 +152,8 @@ router.post('/', auth, admin, async (req, res) => {
         max_discount,
         usage_limit,
         expires_at,
-        is_public === true
+        is_public === true,
+        min_tier || null
       ]
     );
     res.status(201).json(rows[0]);
@@ -159,8 +172,9 @@ router.post('/', auth, admin, async (req, res) => {
 router.patch('/:id', auth, admin, async (req, res) => {
   const allowed = [
     'code', 'type', 'value', 'min_order',
-    'max_discount', 'usage_limit', 'active', 'expires_at', 'is_public'
+    'max_discount', 'usage_limit', 'active', 'expires_at', 'is_public', 'min_tier'
   ];
+  if (req.body.min_tier && !isTierKey(req.body.min_tier)) return res.status(400).json({ message: 'Unknown member tier' });
   const entries = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!entries.length) return res.status(400).json({ message: 'Nothing to update' });
 
