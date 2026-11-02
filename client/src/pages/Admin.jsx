@@ -42,6 +42,10 @@ const empty = {
   material: "",
   care_instructions: "",
   model_details: "",
+  model_height_cm: "",
+  model_wears_size: "",
+  fabric_gsm: "",
+  fabric_composition: "",
   meta_title: "",
   meta_description: "",
   size_chart: []
@@ -686,6 +690,10 @@ export default function Admin({ user }) {
       material: product.material || "",
       care_instructions: product.care_instructions || "",
       model_details: product.model_details || "",
+      model_height_cm: product.model_height_cm ?? "",
+      model_wears_size: product.model_wears_size || "",
+      fabric_gsm: product.fabric_gsm ?? "",
+      fabric_composition: product.fabric_composition || "",
       meta_title: product.meta_title || "",
       meta_description: product.meta_description || "",
       size_chart: Array.isArray(product.size_chart) ? product.size_chart : []
@@ -1325,6 +1333,28 @@ export default function Admin({ user }) {
                 <input ref={videoFileRef} type="file" accept="video/*" hidden onChange={(e) => handleFileUpload(e, "video")} />
               </div>
             </label>
+
+            <div className="admin-two">
+              <label>
+                MODEL HEIGHT IN CM (OPTIONAL)
+                <input type="number" min="100" max="250" placeholder="e.g. 183" value={f.model_height_cm} onChange={(e) => change("model_height_cm", e.target.value)} />
+              </label>
+              <label>
+                SIZE THE MODEL WEARS (OPTIONAL)
+                <input placeholder="e.g. M" value={f.model_wears_size} onChange={(e) => change("model_wears_size", e.target.value)} />
+              </label>
+            </div>
+
+            <div className="admin-two">
+              <label>
+                FABRIC WEIGHT IN GSM (OPTIONAL)
+                <input type="number" min="50" max="1000" placeholder="e.g. 240" value={f.fabric_gsm} onChange={(e) => change("fabric_gsm", e.target.value)} />
+              </label>
+              <label>
+                FABRIC COMPOSITION (OPTIONAL)
+                <input placeholder="e.g. 100% combed cotton" value={f.fabric_composition} onChange={(e) => change("fabric_composition", e.target.value)} />
+              </label>
+            </div>
 
             <div className="admin-two">
               <label>
