@@ -365,7 +365,7 @@ export default function AdminExtras({ user }) {
           <p className="eyebrow">STORE MANAGEMENT</p>
           <h2>Customers, Reviews, Returns & Stock Alerts</h2>
         </div>
-        <button type="button" className="admin-refresh" onClick={load}>
+        <button type="button" className="admin-refresh" onClick={() => { load(); if (tab === "payments") loadPaymentExceptions(); }}>
           <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh
         </button>
       </div>
