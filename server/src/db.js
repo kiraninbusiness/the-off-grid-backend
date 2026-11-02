@@ -655,6 +655,17 @@ export async function initDb(){
     ADD COLUMN IF NOT EXISTS refund_settled_at TIMESTAMPTZ
   `);
 
+  // Idempotent loyalty clawbacks for issued return refunds.
+  await pool.query(`CREATE TABLE IF NOT EXISTS loyalty_refund_reversals (
+    id SERIAL PRIMARY KEY,
+    return_id INTEGER NOT NULL UNIQUE REFERENCES returns(id) ON DELETE CASCADE,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    refund_amount INTEGER NOT NULL CHECK (refund_amount > 0),
+    points_reversed INTEGER NOT NULL CHECK (points_reversed >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
   // Creator programme applications. This stores application/moderation data only;
   // payout details and commission liabilities are deliberately not collected here.
   await pool.query(`CREATE TABLE IF NOT EXISTS creator_applications (
