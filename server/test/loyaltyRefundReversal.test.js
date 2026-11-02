@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateRefundPointsReversal } from '../src/routes/returns.js';
+import { calculateRefundPointsReversal } from '../src/services/loyaltyRefunds.js';
 
 test('refund reverses purchase points proportionally without exceeding earned points', () => {
   assert.equal(calculateRefundPointsReversal({ pointsEarned: 100, orderTotal: 1000, cumulativeRefund: 250, previouslyReversed: 0 }), 25);
