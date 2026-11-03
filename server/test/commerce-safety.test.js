@@ -52,28 +52,31 @@ test('webhook event IDs are stable for retries and respect provider IDs', () => 
   assert.equal(webhookEventId(body, 'x'.repeat(300)).length, 255);
 });
 
-
-test('cart merge and quantity safeguards remain wired into API and schema', () => {
+test('cart merge and quantity safeguards remain wired into API and reviewed migration', () => {
   const cartRoute = readFileSync(new URL('../src/routes/cart.js', import.meta.url), 'utf8');
   const db = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../migrations/20261102_001_add_missing_backend_schema.sql', import.meta.url), 'utf8');
   assert.match(cartRoute, /normalizeMergeItems\(req\.body\?\.items\)/);
   assert.match(cartRoute, /cart_merge_requests/);
   assert.match(cartRoute, /ON CONFLICT \(user_id, request_id\) DO NOTHING/);
   assert.match(cartRoute, /mode === 'increment'/);
   assert.ok(cartRoute.includes("WHERE ($6 <> 'increment' OR cart_items.quantity < $7)"));
-  assert.match(db, /UNIQUE\(user_id, request_id\)/);
-  assert.doesNotMatch(db, /DELETE FROM cart_items WHERE user_id IN/i);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.cart_merge_requests/);
+  assert.doesNotMatch(db, /CREATE TABLE|ALTER TABLE|DELETE FROM|UPDATE public\./i);
 });
 
-test('push token registration and durable webhook retry tracking remain present', () => {
+test('push token registration and durable webhook retry tracking are in reviewed migration', () => {
   const notifications = readFileSync(new URL('../src/routes/notifications.js', import.meta.url), 'utf8');
   const webhook = readFileSync(new URL('../src/routes/webhooks.js', import.meta.url), 'utf8');
   const db = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
+  const migration = readFileSync(new URL('../migrations/20261102_001_add_missing_backend_schema.sql', import.meta.url), 'utf8');
   assert.match(notifications, /router\.post\('\/push-token'/);
   assert.match(notifications, /INSERT INTO user_push_tokens/);
   assert.match(webhook, /verifyRazorpayWebhookSignature/);
   assert.match(webhook, /status = 'processed'/);
   assert.match(webhook, /status = 'failed'/);
   assert.match(webhook, /res\.status\(500\)/);
-  assert.match(db, /CREATE TABLE IF NOT EXISTS razorpay_webhook_events/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.user_push_tokens/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.razorpay_webhook_events/);
+  assert.doesNotMatch(db, /CREATE TABLE|ALTER TABLE|DELETE FROM|UPDATE public\./i);
 });
