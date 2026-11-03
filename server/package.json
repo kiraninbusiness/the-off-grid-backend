@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "db:init": "node src/db.js",
-    "test": "node --test"
+    "test": "node --test",
+    "db:check": "node -e \"import('./src/db.js').then(async m => { await m.initDb(); console.log('Database connection OK'); await m.pool.end(); }).catch(e => { console.error(e); process.exit(1); })\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
