@@ -10,3 +10,6 @@ The one shared backend API for **The Off Grid**. Both the website and the Androi
 
 Deploy: Render, root directory `server`, build `npm install`, start `npm start`.
 Database: Neon (`DATABASE_URL`). Set `CLIENT_URL` and `CLIENT_URL_WWW` to the website's addresses.
+
+## History
+Older change logs from earlier rounds are kept in `docs/archive/`. Database changes are tracked as SQL files in `server/migrations/`.
