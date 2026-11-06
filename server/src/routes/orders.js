@@ -1,4 +1,5 @@
 import { normalizeShipment } from '../services/shipment.js';
+import { hashOrderRequest, isValidOrderIdempotencyKey } from '../services/orderIdempotency.js';
 import { Router } from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
@@ -217,10 +218,61 @@ router.post('/create', auth, async (req, res) => {
     });
   }
 
+  const idempotencyKey = String(req.get('Idempotency-Key') || '').trim();
+  if (idempotencyKey && !isValidOrderIdempotencyKey(idempotencyKey)) {
+    return res.status(400).json({ message: 'Invalid order request key. Please retry checkout.' });
+  }
+  const requestHash = idempotencyKey ? hashOrderRequest({
+    items,
+    shipping: cleanShipping,
+    payment_method,
+    redeem_points,
+    coupon_code,
+    gift_card_code,
+    gift_wrap,
+    gift_message
+  }) : null;
+
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
+
+    // The unique (user_id, idempotency_key) row serializes concurrent retries.
+    // A replay with the same payload returns the original order; a changed
+    // payload must use a new key so a customer cannot accidentally reuse it.
+    if (idempotencyKey) {
+      await client.query(
+        `INSERT INTO order_requests (user_id, idempotency_key, request_hash)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+        [req.user.id, idempotencyKey, requestHash]
+      );
+      const requestResult = await client.query(
+        `SELECT request_hash, order_id
+         FROM order_requests
+         WHERE user_id = $1 AND idempotency_key = $2
+         FOR UPDATE`,
+        [req.user.id, idempotencyKey]
+      );
+      const savedRequest = requestResult.rows[0];
+      if (!savedRequest || savedRequest.request_hash !== requestHash) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'This checkout request key was already used for different order details. Please retry checkout.' });
+      }
+      if (savedRequest.order_id != null) {
+        const savedOrder = await client.query(
+          'SELECT * FROM orders WHERE id = $1 AND user_id = $2',
+          [savedRequest.order_id, req.user.id]
+        );
+        if (!savedOrder.rows.length) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ message: 'The earlier checkout could not be recovered. Please contact support before placing another order.' });
+        }
+        await client.query('COMMIT');
+        return res.status(200).json({ order: savedOrder.rows[0], idempotent_replay: true });
+      }
+    }
 
     /*
       GET PRODUCTS AND LOCK THEIR ROWS
@@ -553,6 +605,13 @@ router.post('/create', auth, async (req, res) => {
         ]
       )
     ).rows[0];
+
+    if (idempotencyKey) {
+      await client.query(
+        'UPDATE order_requests SET order_id = $1 WHERE user_id = $2 AND idempotency_key = $3',
+        [order.id, req.user.id, idempotencyKey]
+      );
+    }
 
     if (giftCard && giftCardDiscount > 0) {
       await client.query(
