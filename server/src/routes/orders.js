@@ -202,22 +202,6 @@ router.post('/create', auth, async (req, res) => {
     return res.status(400).json({ message: 'Please provide valid delivery details.' });
   }
 
-  /*
-    ONLINE PAYMENT REQUIRES RAZORPAY
-  */
-  if (
-    payment_method === 'online' &&
-    (
-      !process.env.RAZORPAY_KEY_ID ||
-      !process.env.RAZORPAY_KEY_SECRET
-    )
-  ) {
-    return res.status(503).json({
-      message:
-        'Online payment is currently unavailable. Please choose Cash on Delivery.'
-    });
-  }
-
   const idempotencyKey = String(req.get('Idempotency-Key') || '').trim();
   if (idempotencyKey && !isValidOrderIdempotencyKey(idempotencyKey)) {
     return res.status(400).json({ message: 'Invalid order request key. Please retry checkout.' });
@@ -273,6 +257,21 @@ router.post('/create', auth, async (req, res) => {
         await client.query('COMMIT');
         return res.status(200).json({ order: savedOrder.rows[0], idempotent_replay: true });
       }
+    }
+
+    /*
+      ONLINE PAYMENT REQUIRES RAZORPAY
+      Check after idempotency replay so an existing order can still be
+      recovered even if payment configuration changes between attempts.
+    */
+    if (
+      payment_method === 'online' &&
+      (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET)
+    ) {
+      await client.query('ROLLBACK');
+      return res.status(503).json({
+        message: 'Online payment is currently unavailable. Please choose Cash on Delivery.'
+      });
     }
 
     /*
