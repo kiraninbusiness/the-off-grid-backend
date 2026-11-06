@@ -6,10 +6,12 @@ The API startup path is read-only. `src/server.js` calls `initDb()`, which now
 only verifies `DATABASE_URL` connectivity with `SELECT 1`. It does not create,
 alter, backfill, normalize, delete, or seed database records.
 
-There is intentionally no executable production migration in this directory yet.
-The live Neon schema has been inspected (tables, columns, indexes, constraints),
-but a complete column-by-column and index-by-index diff against every SQL
-statement required by the new API has not yet been approved.
+The `20261106_001_order_idempotency.sql` migration is a reviewed draft and has
+been applied only to the isolated `phase1-order-safety-staging` Neon branch.
+It has not been applied to production. The repository still has no automatic
+migration runner; production rollout requires staging tests, a restorable backup,
+and explicit approval. The live Neon schema must be re-compared before any
+additional migration is approved.
 
 ## Required process before adding a migration
 
