@@ -234,6 +234,7 @@ router.post('/create', auth, async (req, res) => {
   }) : null;
 
   const client = await pool.connect();
+  let transactionCommitted = false;
 
   try {
     await client.query('BEGIN');
@@ -752,6 +753,7 @@ router.post('/create', auth, async (req, res) => {
 
 
     await client.query('COMMIT');
+    transactionCommitted = true;
 
     // Order confirmation email — fire and forget, never blocks the response
     const emailItems = items.map((item) => ({
@@ -775,7 +777,7 @@ router.post('/create', auth, async (req, res) => {
       e.message
     );
 
-    res.status(400).json({
+    res.status(transactionCommitted ? 500 : (Number(e?.status) || 400)).json({
       message:
         e.message ||
         'Could not create order'
