@@ -16,12 +16,12 @@ export function hashOrderRequest(input) {
     items,
     shipping: {
       name: String(input.shipping?.name || '').trim(),
-      phone: String(input.shipping?.phone || '').replace(/\\D/g, ''),
+      phone: String(input.shipping?.phone || '').replace(/\D/g, ''),
       email: String(input.shipping?.email || '').trim().toLowerCase(),
       address: String(input.shipping?.address || '').trim(),
       city: String(input.shipping?.city || '').trim(),
       state: String(input.shipping?.state || '').trim(),
-      pincode: String(input.shipping?.pincode || '').replace(/\\D/g, '')
+      pincode: String(input.shipping?.pincode || '').replace(/\D/g, '')
     },
     payment_method: String(input.payment_method || 'cod'),
     redeem_points: Math.max(0, Math.floor(Number(input.redeem_points) || 0)),
