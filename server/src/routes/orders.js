@@ -422,6 +422,8 @@ router.post('/create', auth, async (req, res) => {
         Number(p.price) * quantity;
     }
 
+    comboDiscount = Math.min(comboDiscount, subtotal);
+
     /*
       SHIPPING
       Free above ₹1,499
@@ -486,7 +488,7 @@ router.post('/create', auth, async (req, res) => {
       Math.min(
         Math.floor(Number(redeem_points) || 0),
         userPoints,
-        Math.max(0, subtotal - couponDiscount)
+        Math.max(0, subtotal - couponDiscount - comboDiscount)
       )
     );
 
@@ -517,7 +519,7 @@ router.post('/create', auth, async (req, res) => {
         throw new Error('Gift card has no remaining balance');
       }
 
-      const remainingAfterOtherDiscounts = Math.max(0, subtotal - couponDiscount - pointsToRedeem);
+      const remainingAfterOtherDiscounts = Math.max(0, subtotal - couponDiscount - pointsToRedeem - comboDiscount);
       giftCardDiscount = Math.min(Number(giftCard.balance), remainingAfterOtherDiscounts);
     }
 
@@ -530,6 +532,10 @@ router.post('/create', auth, async (req, res) => {
 
     const total =
       subtotal + shippingCharge + wrapFee - couponDiscount - discount - giftCardDiscount - comboDiscount;
+
+    if (!Number.isSafeInteger(total) || total < 0) {
+      throw new Error('The order total could not be calculated safely. Please review your discounts and try again.');
+    }
 
     if (couponRow) {
       await client.query(
